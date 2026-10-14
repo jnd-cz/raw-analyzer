@@ -77,7 +77,9 @@
     const pn = Analysis.patternNoise(res, res.black, dark);
     const lines = (o) => o && o.ch.map((c) => c && { line: r4(c.line), detected: c.detected });
     const df = Analysis.defectPixels(res, levels, res.noise ? res.noise.sigma : null);
+    const ff = FlatField.analyze(res, levels, res.noise ? res.noise.sigma : null);
     return {
+      flat: ff.flat ? { dust2: ff.spots.filter((s) => s.depth > 0.02).length, dust5: ff.spots.filter((s) => s.depth > 0.05).length, vignetting: r4(Math.min(...Object.values(ff.vig.corners))) } : false,
       defects: df.counts,
       pattern: pn && { random: pn.random.map(r4), mode: pn.mode, rows: lines(pn.rows), cols: lines(pn.cols), border: lines(pn.border), side: pn.borderSide, rejected: pn.rejected },
       format: res.format, size: [res.width, res.height], bits: res.bits, active: A, cfa: res.cfa, colors4: !!res.colors4,

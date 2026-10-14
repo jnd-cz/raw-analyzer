@@ -126,6 +126,7 @@
     updatePtc();
     updatePattern();
     updateDefects();
+    updateFlat();
   }
 
   // ---------------------------------------------------------------- areas
@@ -727,6 +728,7 @@
       $('cmpBody').innerHTML = '<p class="muted">Open a second raw file with <b>Compare with&hellip;</b> to see both side by side: ' +
         'exposure, noise, dynamic range, banding and defects. Useful for two bodies, two ISO settings or two exposures of the same scene.</p>';
       $('cmpWrap').hidden = true;
+      $('cmpRatio').hidden = true;
       return;
     }
     const a = profileA();
@@ -800,7 +802,93 @@
       'B uses the levels from its file; edits in the Levels table apply to A only.' + (b.ptc ? '' : ' Computing B&rsquo;s sensor estimate and defects&hellip;') + '</p>';
     $('cmpWrap').hidden = false;
     drawCompare(a, b, nCh);
+    renderRatio(a, b);
   }
+
+  /**
+   * Exposure ratio B / A across the frame, for two frames of the same scene from
+   * one camera: along the rows (top to bottom, the shutter curtain travel) and
+   * along the columns (a control). With two flat fields at different shutter
+   * speeds this shows the shutter's uneven exposure ("capping").
+   */
+  function renderRatio(a, b) {
+    const box = $('cmpRatio');
+    const same = a.img.width === b.img.width && a.img.height === b.img.height && a.img.facts.model === b.img.facts.model;
+    if (!same) { box.hidden = true; return; }
+    const dark = state.cmpDark && state.cmpDark.img.width === a.img.width && state.cmpDark.img.height === a.img.height ? state.cmpDark : null;
+    if (b.ratioFor !== a.img || b.ratioDark !== dark) { b.ratio = FlatField.ratioProfiles(a.img, a.levels, b.img, b.levels, 48, dark); b.ratioFor = a.img; b.ratioDark = dark; }
+    $('btnCmpDarkClear').hidden = !state.cmpDark;
+    $('cmpDarkName').textContent = state.cmpDark ? `Dark frame: ${state.cmpDark.img.fileName} (${state.cmpDark.img.facts.exposureTime ? RL.fmtShutter(state.cmpDark.img.facts.exposureTime) + ', ' : ''}ISO ${state.cmpDark.img.facts.iso})` + (dark ? '' : ' does not match the frame size') : '';
+    const r = b.ratio;
+    box.hidden = false;
+    // straight-line trend across the frame (EV from one end to the other) and the scatter around it
+    const trend = (p) => {
+      const n = p.length, xm = (n - 1) / 2, ym = p.reduce((x, y) => x + y, 0) / n;
+      let sxy = 0, sxx = 0;
+      p.forEach((v, i) => { sxy += (i - xm) * (v - ym); sxx += (i - xm) ** 2; });
+      const k = sxy / sxx;
+      const res = Math.sqrt(p.reduce((acc, v, i) => acc + (v - ym - k * (i - xm)) ** 2, 0) / (n - 2));
+      return { total: k * (n - 1), res };
+    };
+    const tr = trend(r.rows), tc = trend(r.cols);
+    const sr = Math.abs(tr.total), sc = Math.abs(tc.total);
+    const tA = a.img.facts.exposureTime, tB = b.img.facts.exposureTime;
+    const dim = Math.min(r.meanA, r.meanB);
+    const offsetEV = Math.log2(1 + 1 / Math.max(1, dim)); // a 1 DN black-level error, in EV
+    const notes = [];
+    if (tA && tB && Math.abs(Math.log2(tA / tB)) > 0.5) {
+      const fast = Math.min(tA, tB);
+      const rowsShutter = sr > 0.03 && sr > 2 * sc && sr > 3 * tr.res;
+      const inconclusive = !rowsShutter && (sc > 0.03 || tr.res > 0.03);
+      // the faster frame gets 2^sr more light at one end than the other: a timing error of about fast · (2^sr − 1)
+      notes.push(inconclusive
+        ? `<b>Inconclusive</b>: ${sr.toFixed(2)} EV from top to bottom, but the columns (the control, which a shutter cannot affect) change ${sc.toFixed(2)} EV and the profiles scatter by ${Math.max(tr.res, tc.res).toFixed(2)} EV, ` +
+          'so offsets or patterns in the dim frame dominate.' + (dark ? '' : ' Subtract a dark frame below.')
+        : rowsShutter
+        ? `<b>Uneven shutter exposure</b>: ${sr.toFixed(2)} EV from top to bottom of the frame, ${tr.total > 0 ? 'brighter at the bottom' : 'brighter at the top'} of the raw frame (columns ${sc.toFixed(2)} EV, the control). ` +
+          `At ${RL.fmtShutter(fast)} that is a curtain timing difference of about ${Math.round(fast * (Math.pow(2, sr) - 1) * 1e6)} µs across the frame. ` +
+          'It grows as the shutter gets faster; flash sync and very short exposures show it as a gradient.'
+        : `No shutter gradient beyond ${Math.max(0.01, sr).toFixed(2)} EV from top to bottom (columns ${sc.toFixed(2)} EV).`);
+      if (offsetEV > 0.01 && !dark) notes.push(`The darker frame averages only ${Math.round(dim)} DN above black, so a 1 DN black-level error moves the ratio by ${offsetEV.toFixed(2)} EV. ` +
+        'For a clean measurement expose the fast frame to a quarter of saturation or more (open the aperture or add light).');
+    } else {
+      notes.push(`Exposure ratio across the frame: ${sr.toFixed(2)} EV top to bottom, ${sc.toFixed(2)} EV left to right. ` +
+        'For a shutter check compare two flat fields shot at very different shutter speeds (e.g. 1/30 s and 1/4000 s, same light, aperture adjusted).');
+    }
+    $('cmpRatioNotes').innerHTML = '<p>' + notes.join(' ') + '</p>';
+    // chart: two profiles, EV against position
+    const c = $('cmpRatioCanvas');
+    const dpr = window.devicePixelRatio || 1;
+    const W = c.clientWidth, H = c.clientHeight;
+    if (!W || !H) return;
+    c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const L = 40, R = W - 10, T = 10, B = H - 22;
+    const lim = Math.max(0.05, ...r.rows.map(Math.abs), ...r.cols.map(Math.abs)) * 1.15;
+    const X = (i, n) => L + (i / (n - 1)) * (R - L), Y = (v) => (T + B) / 2 - (v / lim) * ((B - T) / 2);
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.strokeStyle = '#2a2f36'; ctx.fillStyle = '#8a939d'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (const v of [-lim / 1.15, 0, lim / 1.15]) {
+      const y = Math.round(Y(v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke();
+      ctx.fillText((v > 0 ? '+' : '') + v.toFixed(2), L - 6, y);
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('top / left of the frame → bottom / right (EV, B / A)', L + 2, B + 6);
+    for (const [p, color, label] of [[r.cols, '#8a939d', 'columns (control)'], [r.rows, '#f2b84b', 'rows: top → bottom (curtain travel)']]) {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      p.forEach((v, i) => { const x = X(i, p.length), y = Y(v); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+    ctx.textAlign = 'right'; ctx.fillStyle = '#f2b84b'; ctx.fillText('rows (curtain travel)', R, T);
+    ctx.fillStyle = '#8a939d'; ctx.fillText('columns (control)', R, T + 14);
+  }
+
+
 
   /** Histograms of A (solid) and B (dashed) in EV below saturation, per channel. */
   function drawCompare(a, b) {
@@ -876,6 +964,18 @@
   $('btnCompare').onclick = () => $('fileInputB').click();
   $('fileInputB').onchange = () => { compareWith($('fileInputB').files[0]); $('fileInputB').value = ''; };
   $('btnCmpClose').onclick = () => { state.cmp = null; renderCompare(); };
+  $('btnCmpDark').onclick = () => $('fileInputDark').click();
+  $('btnCmpDarkClear').onclick = () => { state.cmpDark = null; renderCompare(); };
+  $('fileInputDark').onchange = () => {
+    const file = $('fileInputDark').files[0];
+    $('fileInputDark').value = '';
+    if (!file) return;
+    $('cmpDarkName').textContent = 'Decoding ' + file.name + '…';
+    file.arrayBuffer().then((buf) => decodeRaw(buf, file.name)).then((img) => {
+      state.cmpDark = { img, levels: { black: img.black.slice(), white: img.white } };
+      renderCompare();
+    }).catch((e) => { $('cmpDarkName').textContent = 'Could not open ' + file.name + ': ' + e.message; });
+  };
   $('btnCmpSwap').onclick = () => {
     const b = state.cmp, prevA = state.img;
     if (!b) return;
@@ -886,6 +986,77 @@
   };
   new ResizeObserver(() => { if (state.cmp && $('tab-compare').classList.contains('active')) renderCompare(); }).observe($('cmpWrap'));
 
+  // ---------------------------------------------------------- flat field (vignetting, dust)
+  let flatTimer = 0;
+
+  function updateFlat() {
+    state.flat = null;
+    viewer.flat = null;
+    viewer.dust = null;
+    $('flatBody').innerHTML = '<p class="muted">Checking&hellip;</p>';
+    $('flatSpots').innerHTML = '';
+    $('flatActions').hidden = true;
+    const opt = $('viewMode').querySelector('option[value=flat]');
+    opt.disabled = true;
+    clearTimeout(flatTimer);
+    const img = state.img;
+    flatTimer = setTimeout(() => {
+      if (state.img !== img) return;
+      state.flat = FlatField.analyze(img, state.levels, state.sigma);
+      renderFlat();
+    }, 160);
+  }
+
+  function renderFlat() {
+    const f = state.flat, img = state.img;
+    const opt = $('viewMode').querySelector('option[value=flat]');
+    if (!f || !f.flat) {
+      opt.disabled = true;
+      if ($('viewMode').value === 'flat') { $('viewMode').value = 'rgb'; viewer.mode = 'rgb'; viewer.requestRender(); }
+      $('flatBody').innerHTML = `<p class="muted">Not a flat field: ${esc(f ? f.reason : '')}. For the vignetting and dust checks shoot an evenly lit, ` +
+        'featureless surface (white wall, overcast sky, a lightbox), out of focus, exposed to about a quarter of saturation or more, ideally at f/16 to f/22.</p>';
+      return;
+    }
+    opt.disabled = false;
+    viewer.flat = f.map;
+    viewer.dust = f.spots.filter((s) => s.depth > 0.02);
+    const v = f.vig;
+    const evs = (o) => Object.values(o).map((x) => x.toFixed(2));
+    const worst = Math.min(...Object.values(v.corners));
+    const n2 = f.spots.filter((s) => s.depth > 0.02).length, n5 = f.spots.filter((s) => s.depth > 0.05).length, n10 = f.spots.filter((s) => s.depth > 0.1).length;
+    const fn = img.facts.fnumber;
+    const rows = [
+      ['Level', `${(f.level * 100).toFixed(1)}% of saturation (block noise ${(f.noise * 100).toFixed(2)}%)`],
+      ['Vignetting', `corners ${evs(v.corners).join(' / ')} EV (top-left, top-right, bottom-left, bottom-right), edges ${evs(v.edges).join(' / ')} EV (top, bottom, left, right), against the centre`],
+      ['Dust spots', `${n2} deeper than 2%, ${n5} deeper than 5%, ${n10} deeper than 10%` + (f.spots.length > n2 ? ` (plus ${f.spots.length - n2} fainter)` : '')],
+    ];
+    $('flatBody').innerHTML = `<div class="kv">${rows.map(([k, val]) => `<div class="k">${esc(k)}</div><div class="v">${esc(val)}</div>`).join('')}</div>` +
+      `<p class="notes">${n10 ? '<b>Heavy dust</b>: spots of 10% and more show as dark blotches in skies and plain areas at small apertures; the sensor needs cleaning. '
+        : n5 ? '<b>Visible dust</b>: spots of 5% and more show in skies at small apertures. ' : n2 ? 'Light dust: faint spots, mostly invisible except in skies at f/16 and beyond. ' : '<b>Clean sensor</b>: no spots deeper than 2%. '}` +
+      (fn && fn < 11 ? `This frame is at f/${RL.fmtNum(fn, 1)}: dust shadows are larger and fainter than at f/16 to f/22, so a stopped-down flat finds more. ` : '') +
+      `Vignetting of ${(-worst).toFixed(2)} EV at the worst corner` + (Math.abs(v.corners.tl - v.corners.br) > 0.1 || Math.abs(v.corners.tr - v.corners.bl) > 0.1 ? ' is uneven between the corners (lens decentring, tilted target or uneven light).' : '.') + '</p>';
+    const top = f.spots.slice(0, 12);
+    $('flatSpots').innerHTML = top.length ? '<thead><tr><th>Position</th><th>Size</th><th>Depth</th></tr></thead><tbody>' +
+      top.map((s, k) => `<tr data-k="${k}"><td>${Math.round(s.x)}, ${Math.round(s.y)}</td><td>${s.size} px</td><td class="${s.depth > 0.1 ? 'bad' : s.depth > 0.05 ? 'warn' : ''}">${(s.depth * 100).toFixed(1)}%</td></tr>`).join('') + '</tbody>' : '';
+    $('flatActions').hidden = false;
+    viewer.requestRender();
+  }
+
+  $('flatSpots').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-k]');
+    if (!tr || !state.flat) return;
+    const s = state.flat.spots[+tr.dataset.k];
+    $('showDust').checked = viewer.showDust = true;
+    viewer.centerOn(Math.round(s.x), Math.round(s.y), Math.max(0.5, Math.min(4, 200 / s.size)));
+  });
+  $('showDust').onchange = (e) => { viewer.showDust = e.target.checked; viewer.requestRender(); };
+  $('btnDustMap').onclick = () => { $('viewMode').value = 'flat'; viewer.mode = 'flat'; viewer.requestRender(); };
+  $('btnDustCsv').onclick = () => {
+    if (!state.flat || !state.flat.flat) return;
+    const lines = ['x,y,size_px,depth_percent'].concat(state.flat.spots.map((s) => [Math.round(s.x), Math.round(s.y), s.size, (s.depth * 100).toFixed(2)].join(',')));
+    download(baseName() + '_dust.csv', lines.join('\n'), 'text/csv');
+  };
+
   function onLevelsChanged() {
     viewer.levels = state.levels;
     state.wb.auto = Analysis.grayWorld(Analysis.computeStats(histFor('active'), state.levels, state.sigma), state.levels.black, state.img.colors4);
@@ -894,6 +1065,7 @@
     updatePtc();
     updatePattern();
     updateDefects();
+    updateFlat();
   }
 
   $('levelsTable').addEventListener('change', (e) => {

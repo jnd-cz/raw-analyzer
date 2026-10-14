@@ -76,6 +76,7 @@
       this.dmCache = null; this._dmWant = null; this._dmGen = 0; this._dmTimer = 0; this._dmStatus = '';
       this.onDemosaicStatus = null;
       this.defects = null; this.showDefects = false;
+      this.flat = null; this.dust = null; this.showDust = false;
       this._bindEvents();
       new ResizeObserver(() => { if (this.img) { this._keepCenterOnResize(); this.requestRender(); } }).observe(container);
     }
@@ -265,6 +266,7 @@
       const mode = this.mode;
       const chanIdx = { R: 0, G: 1, B: 2, G2: 3 }[mode];
       const pixelCfa = mode === 'cfa' && sd >= 1.5;
+      const flatMap = mode === 'flat' && this.flat ? this.flat : null;
 
       // demosaiced data for the visible area (camera RGB, white balanced, 0..65535)
       let dm = null, dmM = null;
@@ -298,6 +300,13 @@
         for (let px = 0; px < W; px++, o += 4) {
           const rx = colX[px];
           if (rx < bnd.left || rx >= bnd.right) { out[o] = 11; out[o + 1] = 12; out[o + 2] = 14; out[o + 3] = 255; continue; }
+          if (flatMap) {
+            // flat-field deviation: ±5% from black to white, dust shows as dark spots
+            const bx = (rx - flatMap.x0) >> 1, byy = (ry - flatMap.y0) >> 1;
+            const g = bx >= 0 && byy >= 0 && bx < flatMap.w && byy < flatMap.h ? Math.max(0, Math.min(255, 128 + flatMap.dev[byy * flatMap.w + bx] * 2550)) : 40;
+            out[o] = out[o + 1] = out[o + 2] = g; out[o + 3] = 255;
+            continue;
+          }
           if (pixelCfa) {
             const v = raw[ry * RW + rx];
             const ch = cfa[(ry & 1) * 2 + (rx & 1)];
@@ -410,6 +419,18 @@
       const img = this.img;
       ctx.save();
       ctx.lineWidth = Math.max(1, dpr);
+      if (this.showDust && this.dust) {
+        const s = this.scale * dpr;
+        ctx.strokeStyle = '#3cc4e0';
+        ctx.beginPath();
+        for (const d of this.dust) {
+          const x = (d.x - this.ox) * s, y = (d.y - this.oy) * s, rad = Math.max(5 * dpr, (d.size / 2 + 4) * s);
+          if (x < -rad || y < -rad || x > this.canvas.width + rad || y > this.canvas.height + rad) continue;
+          ctx.moveTo(x + rad, y);
+          ctx.arc(x, y, rad, 0, 2 * Math.PI);
+        }
+        ctx.stroke();
+      }
       if (this.showDefects && this.defects) {
         // rings around hot (orange), stuck (magenta) and dead (cyan) pixels
         const s = this.scale * dpr, rad = Math.max(4 * dpr, 1.5 * s);

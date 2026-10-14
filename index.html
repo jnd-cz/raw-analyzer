@@ -43,6 +43,7 @@
             <option value="G">Channel G</option>
             <option value="B">Channel B</option>
             <option value="G2">Channel G2</option>
+            <option value="flat" disabled>Flat field (dust map)</option>
           </select>
         </label>
         <label class="ctl" title="Demosaicing used for the RGB view from 100% zoom, for the visible area only. Below 100% the quick view renders each 2x2 CFA block as one pixel, which already shows all the detail the screen can.">Detail &ge;100%
@@ -204,6 +205,14 @@
         </div>
         <div class="table-wrap"><table class="data click" id="defectList"></table></div>
         <div id="defectNotes" class="notes"></div>
+        <h3>Flat field <span class="muted">(vignetting and sensor dust)</span></h3>
+        <div id="flatBody"></div>
+        <div class="row-actions" id="flatActions" hidden>
+          <label class="chk"><input type="checkbox" id="showDust"> Mark dust on the image</label>
+          <button class="btn small" id="btnDustMap" title="Show the frame divided by its smoothed version, ±5% from black to white">Dust map view</button>
+          <button class="btn small" id="btnDustCsv">Export CSV</button>
+        </div>
+        <div class="table-wrap"><table class="data click" id="flatSpots"></table></div>
         <h3>Sensor estimate <span class="muted">(photon transfer, from this image)</span></h3>
         <div class="kv" id="ptcKv"><div class="muted">Computing&hellip;</div></div>
         <div class="chart-wrap ptc" id="ptcWrap">
@@ -237,6 +246,17 @@
         </div>
         <div class="chart-wrap cmp" id="cmpWrap" hidden><canvas id="cmpCanvas"></canvas></div>
         <div id="cmpBody"></div>
+        <div id="cmpRatio" hidden>
+          <h3>Exposure across the frame <span class="muted">(B / A: shutter check)</span></h3>
+          <div class="chart-wrap ratio"><canvas id="cmpRatioCanvas"></canvas></div>
+          <div id="cmpRatioNotes" class="notes"></div>
+          <div class="row-actions">
+            <button class="btn small" id="btnCmpDark" title="A frame with the lens cap on at the ISO of the fast frame; it removes fixed offsets and row/column patterns">Subtract a dark frame&hellip;</button>
+            <button class="btn small" id="btnCmpDarkClear" hidden>Remove dark frame</button>
+            <span class="muted" id="cmpDarkName"></span>
+            <input id="fileInputDark" type="file" accept=".crw,.cr2,.cr3,.tif,.tiff,.CRW,.CR2,.CR3,.TIF" hidden>
+          </div>
+        </div>
       </div>
 
       <div class="tabpane" id="tab-info">
@@ -320,6 +340,9 @@
       <li>All statistics are computed on the undemosaiced raw values. The quick preview shows each 2x2 CFA block as
         one pixel. From 100% zoom the visible area is demosaiced with the algorithm chosen under <b>Detail &ge;100%</b>
         (AHD by default; PPG and bilinear are faster), computed on several CPU threads.</li>
+      <li><b>Waveform</b> (Histogram tab, Scope) shows the raw levels per image column; Per channel gives a parade.</li>
+      <li><b>Flat field</b>: shoot an evenly lit, out-of-focus surface at f/16 to f/22 to check vignetting and sensor dust
+        (Statistics tab, View: Flat field). Compare two such frames at different shutter speeds to check the shutter.</li>
       <li><b>Export image</b> saves the image with the current white balance and exposure as JPEG, PNG or 16-bit
         TIFF, in sRGB or Adobe RGB with an embedded ICC profile, or the raw data as DNG for other raw converters.</li>
       <li>Supported: Canon CRW (CIFF), CR2, CR3 (lossless and C-RAW), EOS-1D / 1Ds TIF.</li>
@@ -348,6 +371,7 @@
   <script src="js/app/analysis.js"></script>
   <script src="js/app/histogram.js"></script>
   <script src="js/app/waveform.js"></script>
+  <script src="js/app/flatfield.js"></script>
   <script src="js/app/viewer.js"></script>
   <script src="js/app/main.js"></script>
 </body>

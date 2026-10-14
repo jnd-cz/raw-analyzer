@@ -61,6 +61,15 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   them by more than the local noise allows. Counts per channel, the strongest
   defects (click to zoom in), an overlay on the image and CSV export. On a dark frame
   the counts describe the sensor; in a normal photo they are a lower bound.
+- **Flat field** (an evenly lit, featureless frame is recognised automatically):
+  vignetting in EV at the corners and edges, and sensor dust found as soft dark
+  spots in the frame divided by its smoothed version, with position, size and
+  depth (spots deeper than 2% recur in 97% of repeat frames). A dust map view
+  (±5% from black to white), rings on the image and CSV export. In Compare, two
+  frames of the same scene at different shutter speeds give the exposure ratio along
+  the shutter curtain travel, with the columns as a control: on the 5D Mark II test
+  flats 0.03 EV at 1/640 s rising to 0.29 EV at 1/5000 s. A dark frame can be
+  subtracted, which dim fast frames need.
 - **Sensor estimate (photon transfer)** from a single image: noise versus signal
   measured on flat 8×8 same-colour patches, fitted to noise² = floor² + signal/gain
   + (k·signal)² (the last term takes up pixel non-uniformity and texture).
@@ -158,6 +167,8 @@ js/raw/*.js           decoders (run in a Web Worker)
   demosaic.js         bilinear, PPG, AHD (LibRaw ports) and the develop step
 js/app/*.js           user interface
   scan.js             folder scan (worker pool, table, CSV)
+  waveform.js         waveform / parade scope
+  flatfield.js        flat-field checks: vignetting, dust, shutter ratio
   demosaic-host.js    worker pool: strips with overlap, parallel demosaic/develop
   export.js           export dialog, PNG/TIFF/JPEG writers, ICC profiles, Exif
   tiffwriter.js       TIFF structure writer (IFD trees, data blocks)

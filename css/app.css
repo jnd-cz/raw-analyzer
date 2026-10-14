@@ -204,6 +204,7 @@ table.data.click tbody tr { cursor: pointer; }
 table.data.cmp td { white-space: normal; overflow-wrap: anywhere; }
 table.data.cmp tr.sec td { color: var(--muted); font-weight: 600; padding-top: 12px; text-align: left; }
 .chart-wrap.cmp { height: 170px; margin: 8px 0; }
+.chart-wrap.ratio { height: 160px; margin: 8px 0; }
 table.data.click tbody tr:hover td { background: var(--panel-3); }
 table.levels input { width: 76px; height: 24px; text-align: right; background: var(--panel-2); border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); font-family: var(--mono); font-size: 12px; padding: 0 5px; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
