@@ -170,27 +170,13 @@
     }
     const cbrt = cbrtTab;
     const x00 = xc[0], x01 = xc[1], x02 = xc[2], x10 = xc[3], x11 = xc[4], x12 = xc[5], x20 = xc[6], x21 = xc[7], x22 = xc[8];
-    const c16 = (v) => { v = Math.trunc(v); return v < 0 ? 0 : v > 65535 ? 65535 : v; };
     const half = fr(0.5);
-    // rgb at ri (3 values) -> lab at li
-    function cielab(rgb, ri, lab, li) {
-      const r = rgb[ri], g = rgb[ri + 1], b = rgb[ri + 2];
-      const X = cbrt[c16(fr(fr(fr(half + fr(x00 * r)) + fr(x01 * g)) + fr(x02 * b)))];
-      const Y = cbrt[c16(fr(fr(fr(half + fr(x10 * r)) + fr(x11 * g)) + fr(x12 * b)))];
-      const Z = cbrt[c16(fr(fr(fr(half + fr(x20 * r)) + fr(x21 * g)) + fr(x22 * b)))];
-      lab[li] = Math.trunc(fr(64 * fr(fr(116 * Y) - 16)));
-      lab[li + 1] = Math.trunc(fr(32000 * fr(X - Y)));
-      lab[li + 2] = Math.trunc(fr(12800 * fr(Y - Z)));
-    }
-
     borderInterpolate(img, w, h, fc, 3, 5);
     const rgb = new Uint16Array(2 * TS * TS * 3);
     const lab = new Int16Array(2 * TS * TS * 3);
     const homo = new Uint8Array(TS * TS * 2);
     const D1 = TS * TS * 3; // offset of the vertical direction
     const W4 = w * 4;
-    const ld = [0, 0, 0, 0, 0, 0, 0, 0], ad = [0, 0, 0, 0, 0, 0, 0, 0];
-    const dirs = [-3, 3, -TS * 3, TS * 3];
 
     for (let top = 2; top < h - 5; top += TS - 6) {
       for (let left = 2; left < w - 5; left += TS - 6) {
@@ -208,29 +194,42 @@
             rgb[D1 + t] = ULIM(val, img[p - W4 + 1], img[p + W4 + 1]);
           }
         }
-        // red and blue in both directions, then CIELab
+        // red and blue in both directions, then CIELab (helpers inlined: this
+        // loop and the next one take most of the time)
         rowlimit = Math.min(top + TS - 1, h - 3); collimit = Math.min(left + TS - 1, w - 3);
+        const T3 = TS * 3;
         for (let d = 0; d < 2; d++) {
           const base = d * D1;
           for (let row = top + 1; row < rowlimit; row++) {
-            for (let col = left + 1; col < collimit; col++) {
-              const p = (row * w + col) * 4;
-              const ri = base + ((row - top) * TS + (col - left)) * 3;
-              let c = 2 - FC(row, col), val;
+            const f0 = fc[(row & 1) * 2], f1 = fc[(row & 1) * 2 + 1];
+            const g0 = fc[((row + 1) & 1) * 2], g1 = fc[((row + 1) & 1) * 2 + 1];
+            let p = (row * w + left + 1) * 4, ri = base + ((row - top) * TS + 1) * 3;
+            for (let col = left + 1; col < collimit; col++, p += 4, ri += 3) {
+              const odd = col & 1, own = odd ? f1 : f0;
+              let c = 2 - own, val;
               if (c === 1) {
-                c = FC(row + 1, col);
+                c = odd ? g1 : g0;
                 const t1 = 2 - c;
-                val = img[p + 1] + ((img[p - 4 + t1] + img[p + 4 + t1] - rgb[ri - 3 + 1] - rgb[ri + 3 + 1]) >> 1);
-                rgb[ri + t1] = CLIP(val);
-                val = img[p + 1] + ((img[p - W4 + c] + img[p + W4 + c] - rgb[ri - TS * 3 + 1] - rgb[ri + TS * 3 + 1]) >> 1);
+                val = img[p + 1] + ((img[p - 4 + t1] + img[p + 4 + t1] - rgb[ri - 2] - rgb[ri + 4]) >> 1);
+                rgb[ri + t1] = val < 0 ? 0 : val > 65535 ? 65535 : val;
+                val = img[p + 1] + ((img[p - W4 + c] + img[p + W4 + c] - rgb[ri - T3 + 1] - rgb[ri + T3 + 1]) >> 1);
               } else {
                 val = rgb[ri + 1] + ((img[p - W4 - 4 + c] + img[p - W4 + 4 + c] + img[p + W4 - 4 + c] + img[p + W4 + 4 + c] -
-                  rgb[ri - TS * 3 - 3 + 1] - rgb[ri - TS * 3 + 3 + 1] - rgb[ri + TS * 3 - 3 + 1] - rgb[ri + TS * 3 + 3 + 1] + 1) >> 2);
+                  rgb[ri - T3 - 2] - rgb[ri - T3 + 4] - rgb[ri + T3 - 2] - rgb[ri + T3 + 4] + 1) >> 2);
               }
-              rgb[ri + c] = CLIP(val);
-              c = FC(row, col);
-              rgb[ri + c] = img[p + c];
-              cielab(rgb, ri, lab, ri);
+              rgb[ri + c] = val < 0 ? 0 : val > 65535 ? 65535 : val;
+              rgb[ri + own] = img[p + own];
+              // LibRaw cielab() in single precision
+              const r = rgb[ri], g = rgb[ri + 1], b = rgb[ri + 2];
+              const xs = fr(fr(fr(half + fr(x00 * r)) + fr(x01 * g)) + fr(x02 * b));
+              const ys = fr(fr(fr(half + fr(x10 * r)) + fr(x11 * g)) + fr(x12 * b));
+              const zs = fr(fr(fr(half + fr(x20 * r)) + fr(x21 * g)) + fr(x22 * b));
+              const X = cbrt[xs < 1 ? 0 : xs >= 65535 ? 65535 : xs | 0];
+              const Y = cbrt[ys < 1 ? 0 : ys >= 65535 ? 65535 : ys | 0];
+              const Z = cbrt[zs < 1 ? 0 : zs >= 65535 ? 65535 : zs | 0];
+              lab[ri] = Math.trunc(fr(64 * fr(fr(116 * Y) - 16)));
+              lab[ri + 1] = Math.trunc(fr(32000 * fr(X - Y)));
+              lab[ri + 2] = Math.trunc(fr(12800 * fr(Y - Z)));
             }
           }
         }
@@ -239,24 +238,24 @@
         rowlimit = Math.min(top + TS - 2, h - 4); collimit = Math.min(left + TS - 2, w - 4);
         for (let row = top + 2; row < rowlimit; row++) {
           const tr = row - top;
-          for (let col = left + 2; col < collimit; col++) {
-            const li = (tr * TS + col - left) * 3;
-            for (let d = 0; d < 2; d++) {
-              const l = d * D1 + li;
-              for (let i = 0; i < 4; i++) {
-                const a = l + dirs[i];
-                ld[d * 4 + i] = Math.abs(lab[l] - lab[a]);
-                const da = lab[l + 1] - lab[a + 1], db = lab[l + 2] - lab[a + 2];
-                ad[d * 4 + i] = da * da + db * db;
-              }
-            }
-            const leps = Math.min(Math.max(ld[0], ld[1]), Math.max(ld[6], ld[7]));
-            const abeps = Math.min(Math.max(ad[0], ad[1]), Math.max(ad[6], ad[7]));
-            for (let d = 0; d < 2; d++) {
-              let hm = 0;
-              for (let i = 0; i < 4; i++) if (ld[d * 4 + i] <= leps && ad[d * 4 + i] <= abeps) hm++;
-              homo[(tr * TS + col - left) * 2 + d] = hm;
-            }
+          let l = (tr * TS + 2) * 3, hp = (tr * TS + 2) * 2;
+          for (let col = left + 2; col < collimit; col++, l += 3, hp += 2) {
+            // horizontal (d = 0) and vertical (d = 1) Lab, each against its 4 neighbours
+            const v = D1 + l;
+            const hL = lab[l], hA = lab[l + 1], hB = lab[l + 2], vL = lab[v], vA = lab[v + 1], vB = lab[v + 2];
+            let q, da, db;
+            q = l - 3; const l0 = Math.abs(hL - lab[q]); da = hA - lab[q + 1]; db = hB - lab[q + 2]; const a0 = da * da + db * db;
+            q = l + 3; const l1 = Math.abs(hL - lab[q]); da = hA - lab[q + 1]; db = hB - lab[q + 2]; const a1 = da * da + db * db;
+            q = l - T3; const l2 = Math.abs(hL - lab[q]); da = hA - lab[q + 1]; db = hB - lab[q + 2]; const a2 = da * da + db * db;
+            q = l + T3; const l3 = Math.abs(hL - lab[q]); da = hA - lab[q + 1]; db = hB - lab[q + 2]; const a3 = da * da + db * db;
+            q = v - 3; const m0 = Math.abs(vL - lab[q]); da = vA - lab[q + 1]; db = vB - lab[q + 2]; const b0 = da * da + db * db;
+            q = v + 3; const m1 = Math.abs(vL - lab[q]); da = vA - lab[q + 1]; db = vB - lab[q + 2]; const b1 = da * da + db * db;
+            q = v - T3; const m2 = Math.abs(vL - lab[q]); da = vA - lab[q + 1]; db = vB - lab[q + 2]; const b2 = da * da + db * db;
+            q = v + T3; const m3 = Math.abs(vL - lab[q]); da = vA - lab[q + 1]; db = vB - lab[q + 2]; const b3 = da * da + db * db;
+            const leps = Math.min(l0 > l1 ? l0 : l1, m2 > m3 ? m2 : m3);
+            const abeps = Math.min(a0 > a1 ? a0 : a1, b2 > b3 ? b2 : b3);
+            homo[hp] = (l0 <= leps && a0 <= abeps) + (l1 <= leps && a1 <= abeps) + (l2 <= leps && a2 <= abeps) + (l3 <= leps && a3 <= abeps);
+            homo[hp + 1] = (m0 <= leps && b0 <= abeps) + (m1 <= leps && b1 <= abeps) + (m2 <= leps && b2 <= abeps) + (m3 <= leps && b3 <= abeps);
           }
         }
         // pick the more homogeneous direction
@@ -265,10 +264,9 @@
           const tr = row - top;
           for (let col = left + 3; col < collimit; col++) {
             const tc = col - left;
-            let h0 = 0, h1 = 0;
-            for (let i = tr - 1; i <= tr + 1; i++) {
-              for (let j = tc - 1; j <= tc + 1; j++) { const k = (i * TS + j) * 2; h0 += homo[k]; h1 += homo[k + 1]; }
-            }
+            const k0 = ((tr - 1) * TS + tc - 1) * 2, k1 = k0 + TS * 2, k2 = k1 + TS * 2;
+            const h0 = homo[k0] + homo[k0 + 2] + homo[k0 + 4] + homo[k1] + homo[k1 + 2] + homo[k1 + 4] + homo[k2] + homo[k2 + 2] + homo[k2 + 4];
+            const h1 = homo[k0 + 1] + homo[k0 + 3] + homo[k0 + 5] + homo[k1 + 1] + homo[k1 + 3] + homo[k1 + 5] + homo[k2 + 1] + homo[k2 + 3] + homo[k2 + 5];
             const p = (row * w + col) * 4;
             const ri = (tr * TS + tc) * 3;
             if (h0 !== h1) {

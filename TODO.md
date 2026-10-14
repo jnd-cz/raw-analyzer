@@ -18,7 +18,8 @@
       for every raw file in a folder (folder picker input, works from file:// too)
 
 ## Improvements
-- [ ] Faster AHD (now about 4x slower than PPG); keep the LibRaw-exact version for checks
+- [x] Faster AHD: 228 -> 163 ms/MP single thread, still bit-exact with LibRaw (a double-precision
+      variant would gain only 16% more, not worth losing exactness)
 - [ ] DNG export (raw CFA data, colour matrices, lens and exposure metadata)
 - [ ] Remember viewer and histogram settings between sessions (demosaic, bins, shadow threshold)
 
