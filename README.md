@@ -178,7 +178,7 @@ js/app/*.js           user interface
 The decoders were verified pixel-for-pixel against LibRaw (via `rawpy` 0.27) on
 CRW (D30, 10D), EOS-1D and 1Ds TIF, CR2 (80D, G1 X Mark II, G7 X) and a C-RAW
 CR3 (R5, 3 wavelet levels). The lossless CR3 variant shares the same line
-decoders but has not been checked against a sample file yet. The demosaic ports
+decoders; it is bit-exact against LibRaw too (EOS M50 lossless and C-RAW). The demosaic ports
 give the same 16-bit values as LibRaw's (raw colour output) on D30, 10D, 1D, 1Ds,
 1000D, 50D, 7D, 80D and R5 files, including the image edges.
 

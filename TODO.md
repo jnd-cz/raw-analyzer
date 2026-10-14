@@ -23,5 +23,5 @@
 - [x] Remember viewer and histogram settings between sessions (demosaic, bins, shadow threshold)
 
 ## Known gaps
-- [ ] Lossless (non C-RAW) CR3 not yet verified against a sample file
+- [x] Lossless CR3 verified against LibRaw (EOS M50, bit-exact)
 - Unsupported on purpose for now: headerless CHDK dumps, PowerShot Pro70, sRAW / mRAW

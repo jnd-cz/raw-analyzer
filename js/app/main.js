@@ -821,14 +821,19 @@
     $('cmpDarkName').textContent = state.cmpDark ? `Dark frame: ${state.cmpDark.img.fileName} (${state.cmpDark.img.facts.exposureTime ? RL.fmtShutter(state.cmpDark.img.facts.exposureTime) + ', ' : ''}ISO ${state.cmpDark.img.facts.iso})` + (dark ? '' : ' does not match the frame size') : '';
     const r = b.ratio;
     box.hidden = false;
-    // straight-line trend across the frame (EV from one end to the other) and the scatter around it
+    // trend across the frame: y = a + b x + c x² with x centred, so a symmetric
+    // curvature (different vignetting at two apertures) does not count; total is the
+    // straight-line change from one end to the other, res the scatter left over
     const trend = (p) => {
-      const n = p.length, xm = (n - 1) / 2, ym = p.reduce((x, y) => x + y, 0) / n;
-      let sxy = 0, sxx = 0;
-      p.forEach((v, i) => { sxy += (i - xm) * (v - ym); sxx += (i - xm) ** 2; });
-      const k = sxy / sxx;
-      const res = Math.sqrt(p.reduce((acc, v, i) => acc + (v - ym - k * (i - xm)) ** 2, 0) / (n - 2));
-      return { total: k * (n - 1), res };
+      const n = p.length, xm = (n - 1) / 2;
+      const X = p.map((_, i) => (i - xm) / xm);
+      let s0 = n, s1 = 0, s2 = 0, s3 = 0, s4 = 0, t0 = 0, t1 = 0, t2 = 0;
+      p.forEach((v, i) => { const x = X[i]; s1 += x; s2 += x * x; s3 += x ** 3; s4 += x ** 4; t0 += v; t1 += x * v; t2 += x * x * v; });
+      const M = [[s0, s1, s2], [s1, s2, s3], [s2, s3, s4]], y = [t0, t1, t2];
+      for (let i = 0; i < 3; i++) for (let k = i + 1; k < 3; k++) { const f = M[k][i] / M[i][i]; for (let j = i; j < 3; j++) M[k][j] -= f * M[i][j]; y[k] -= f * y[i]; }
+      const c = y[2] / M[2][2], b = (y[1] - M[1][2] * c) / M[1][1], a0 = (y[0] - M[0][1] * b - M[0][2] * c) / M[0][0];
+      const res = Math.sqrt(p.reduce((acc, v, i) => acc + (v - a0 - b * X[i] - c * X[i] * X[i]) ** 2, 0) / (n - 3));
+      return { total: 2 * b, res };
     };
     const tr = trend(r.rows), tc = trend(r.cols);
     const sr = Math.abs(tr.total), sc = Math.abs(tc.total);
@@ -843,7 +848,13 @@
       // the faster frame gets 2^sr more light at one end than the other: a timing error of about fast · (2^sr − 1)
       notes.push(inconclusive
         ? `<b>Inconclusive</b>: ${sr.toFixed(2)} EV from top to bottom, but the columns (the control, which a shutter cannot affect) change ${sc.toFixed(2)} EV and the profiles scatter by ${Math.max(tr.res, tc.res).toFixed(2)} EV, ` +
-          'so offsets or patterns in the dim frame dominate.' + (dark ? '' : ' Subtract a dark frame below.')
+          (() => {
+            const fA = a.img.facts.fnumber, fB = b.img.facts.fnumber;
+            if (fA && fB && Math.abs(Math.log2(fA / fB)) > 0.4) return `so the optics dominate: the frames are at f/${RL.fmtNum(fA, 1)} and f/${RL.fmtNum(fB, 1)}, and vignetting that is not centred adds a slope in both directions. ` +
+              'Shoot the slow reference at the same aperture (change ISO or light instead).';
+            if (offsetEV > 0.01 && !dark) return 'so offsets or patterns in the dim frame dominate. Subtract a dark frame below.';
+            return 'so something other than the shutter dominates (uneven or changing light, a moved target, or offsets in a dim frame).';
+          })()
         : rowsShutter
         ? `<b>Uneven shutter exposure</b>: ${sr.toFixed(2)} EV from top to bottom of the frame, ${tr.total > 0 ? 'brighter at the bottom' : 'brighter at the top'} of the raw frame (columns ${sc.toFixed(2)} EV, the control). ` +
           `At ${RL.fmtShutter(fast)} that is a curtain timing difference of about ${Math.round(fast * (Math.pow(2, sr) - 1) * 1e6)} µs across the frame. ` +
