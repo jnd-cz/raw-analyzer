@@ -191,6 +191,7 @@
     const wave = $('histScope').value === 'wave';
     $('chartWrap').hidden = $('chartWrapAll').hidden = wave;
     $('waveWrap').hidden = !wave;
+    $('waveWrap').classList.toggle('tall', layout === 'stacked');
     $('histYCtl').hidden = $('histBinCtl').hidden = wave;
     $('histXLabel').textContent = wave ? 'Levels' : 'X axis';
     if (wave) {
@@ -200,7 +201,7 @@
         sigma: state.sigma ? state.sigma.reduce((a, b) => a + b, 0) / 4 : 0,
       });
       const r = state.histo.rect;
-      $('histNote').textContent = `${(r.x1 - r.x0)} × ${(r.y1 - r.y0)} px · waveform` + (layout === 'stacked' ? ' (parade)' : ' (overlay)');
+      $('histNote').textContent = `${(r.x1 - r.x0)} × ${(r.y1 - r.y0)} px · waveform` + (layout === 'overlay' ? ' (overlay)' : ' (parade)');
       return;
     }
     const opt = {
@@ -214,12 +215,14 @@
       layout,
       noise: state.sigma ? state.sigma.reduce((a, b) => a + b, 0) / 4 : 0,
     };
-    $('chartWrap').classList.toggle('stacked', layout === 'stacked');
+    const hl = layout === 'side' ? 'stacked' : layout;
+    opt.layout = hl;
+    $('chartWrap').classList.toggle('stacked', hl === 'stacked');
     const series = [];
     const totals = [];
     for (let c = 0; c < 4; c++) {
       if (!state.visible[c]) continue;
-      series.push({ name: CH_NAMES[c], color: CH_COLORS[c], hist: state.histo.hist[c], black: lv.black[c], dashed: c === 3 && layout !== 'stacked' });
+      series.push({ name: CH_NAMES[c], color: CH_COLORS[c], hist: state.histo.hist[c], black: lv.black[c], dashed: c === 3 && hl !== 'stacked' });
       totals.push(state.stats[c] ? state.stats[c].n : 0);
     }
     chart.totals = totals;
@@ -1023,7 +1026,7 @@
     const opt = $('viewMode').querySelector('option[value=flat]');
     if (!f || !f.flat) {
       opt.disabled = true;
-      if ($('viewMode').value === 'flat') { $('viewMode').value = 'rgb'; viewer.mode = 'rgb'; viewer.requestRender(); }
+      if ($('viewMode').value === 'flat') { $('viewMode').value = 'rgb'; viewer.mode = 'rgb'; viewer.requestRender(); $('viewMode').dispatchEvent(new Event('change')); }
       $('flatBody').innerHTML = `<p class="muted">Not a flat field: ${esc(f ? f.reason : '')}. For the vignetting and dust checks shoot an evenly lit, ` +
         'featureless surface (white wall, overcast sky, a lightbox), out of focus, exposed to about a quarter of saturation or more, ideally at f/16 to f/22.</p>';
       return;
@@ -1061,7 +1064,21 @@
     viewer.centerOn(Math.round(s.x), Math.round(s.y), Math.max(0.5, Math.min(4, 200 / s.size)));
   });
   $('showDust').onchange = (e) => { viewer.showDust = e.target.checked; viewer.requestRender(); };
-  $('btnDustMap').onclick = () => { $('viewMode').value = 'flat'; viewer.mode = 'flat'; viewer.requestRender(); };
+  let viewBeforeDust = 'rgb';
+  const syncDustButton = () => {
+    const on = $('viewMode').value === 'flat';
+    $('btnDustMap').classList.toggle('active', on);
+    $('btnDustMap').textContent = on ? 'Back to ' + $('viewMode').querySelector(`option[value="${viewBeforeDust}"]`).textContent : 'Dust map view';
+  };
+  $('btnDustMap').onclick = () => {
+    const on = $('viewMode').value === 'flat';
+    if (!on) viewBeforeDust = $('viewMode').value;
+    $('viewMode').value = on ? viewBeforeDust : 'flat';
+    viewer.mode = $('viewMode').value;
+    viewer.requestRender();
+    syncDustButton();
+  };
+  $('viewMode').addEventListener('change', () => { if ($('viewMode').value !== 'flat') viewBeforeDust = $('viewMode').value; syncDustButton(); });
   $('btnDustCsv').onclick = () => {
     if (!state.flat || !state.flat.flat) return;
     const lines = ['x,y,size_px,depth_percent'].concat(state.flat.spots.map((s) => [Math.round(s.x), Math.round(s.y), s.size, (s.depth * 100).toFixed(2)].join(',')));
@@ -1322,7 +1339,7 @@
     document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
     document.querySelectorAll('.tabpane').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + t.dataset.tab));
     if (t.dataset.tab === 'hist') drawCharts();
-    if (t.dataset.tab === 'stats') drawPtc();
+    if (t.dataset.tab === 'sensor') drawPtc();
     if (t.dataset.tab === 'compare') renderCompare();
   }));
 

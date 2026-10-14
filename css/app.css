@@ -68,6 +68,7 @@ h3 .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
 }
 .btn:hover { background: var(--panel-3); }
 .btn:disabled { opacity: .45; cursor: default; }
+.btn.active { border-color: var(--accent); color: var(--text); background: var(--panel-3); }
 .btn:disabled:hover { background: var(--panel-2); }
 .btn:focus-visible, .tool:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
@@ -172,6 +173,7 @@ select.mini { height: 24px; background: var(--panel-2); border: 1px solid var(--
 .chart-wrap.stacked { height: 380px; }
 .chart-wrap.small { height: 120px; margin-top: 8px; }
 .chart-wrap.wave { height: 380px; background: #07080a; }
+.chart-wrap.wave.tall { height: 640px; }
 .chart-wrap.ptc { height: 210px; margin: 8px 0; }
 table.data td.good { color: var(--ch-g); }
 .chart-wrap canvas { width: 100%; height: 100%; display: block; }

@@ -22,7 +22,7 @@
 
     /**
      * img: decoded image; rect {x0,y0,x1,y1}; levels {black[4], white};
-     * opt: { channels: [{ c, name, color }], layout: 'overlay'|'stacked', yMode: 'linear'|'ev', subBlack, sigma }
+     * opt: { channels: [{ c, name, color }], layout: 'overlay'|'stacked'|'side', yMode: 'linear'|'ev', subBlack, sigma }
      */
     draw(img, rect, levels, opt) {
       const cv = this.canvas;
@@ -31,14 +31,18 @@
       if (!W || !H || !img) return;
       cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
       const L = 46, R = 10, T = 10, B = 22;
-      const panels = opt.layout === 'stacked' ? opt.channels.length : 1;
-      const gap = panels > 1 ? 6 : 0;
-      const pw = Math.max(8, Math.floor((W - L - R - gap * (panels - 1)) / panels));
-      const ph = H - T - B;
+      // per channel: 'stacked' puts the panels under each other at full width,
+      // 'side' next to each other (the classic parade)
+      const panels = opt.layout === 'overlay' ? 1 : opt.channels.length;
+      const cols = opt.layout === 'side' ? panels : 1, rows = opt.layout === 'side' ? 1 : panels;
+      const gap = panels > 1 ? 8 : 0;
+      const pw = Math.max(8, Math.floor((W - L - R - gap * (cols - 1)) / cols));
+      const ph = Math.max(8, Math.floor((H - T - B - gap * (rows - 1)) / rows));
+      const origin = (pi) => [L + (pi % cols) * (pw + gap), T + Math.floor(pi / cols) * (ph + gap)];
       // bins in device pixels for a crisp trace
       const nx = Math.max(8, Math.round(pw * dpr)), ny = Math.max(8, Math.round(ph * dpr));
       const d = this.compute(img, rect, levels, opt, nx, ny);
-      this.data = { d, L, T, pw, ph, gap, panels, nx, ny, rect, levels, opt, dpr, W, H };
+      this.data = { d, L, T, pw, ph, gap, cols, rows, panels, nx, ny, rect, levels, opt, dpr, W, H, origin };
       const ctx = cv.getContext('2d');
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, cv.width, cv.height);
@@ -52,7 +56,7 @@
           const cnt = d.counts[ch.c], ref = d.ref[ch.c];
           if (!cnt || !ref) continue;
           const [cr, cg, cb] = hexRgb(ch.color);
-          // a single channel in the parade is drawn brighter
+          // a single channel per panel is drawn brighter
           const boost = chans.length === 1 ? 1.25 : 0.85;
           for (let i = 0; i < nx * ny; i++) {
             const n = cnt[i];
@@ -65,42 +69,41 @@
             px[o + 3] = 255;
           }
         }
-        ctx.putImageData(im, Math.round((L + pi * (pw + gap)) * dpr), Math.round(T * dpr));
+        const [ox, oy] = origin(pi);
+        ctx.putImageData(im, Math.round(ox * dpr), Math.round(oy * dpr));
       }
 
-      // frame, grid and labels
+      // frame, grid and labels per panel (tick labels in the first column only)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.font = '11px system-ui, sans-serif';
-      const Y = (f) => T + (1 - f) * ph; // f = fraction of the level range
-      ctx.strokeStyle = 'rgba(138,147,157,.28)';
-      ctx.fillStyle = '#8a939d';
-      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-      for (const [f, label] of d.ticks) {
-        const y = Math.round(Y(f)) + 0.5;
-        ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L + panels * pw + (panels - 1) * gap, y); ctx.stroke();
-        ctx.fillText(label, L - 6, y);
-      }
-      // saturation and noise floor markers
-      const mark = (f, color, text) => {
-        if (f === null || f < 0 || f > 1) return;
-        const y = Math.round(Y(f)) + 0.5;
-        ctx.strokeStyle = color; ctx.setLineDash([4, 3]);
-        ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L + panels * pw + (panels - 1) * gap, y); ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = color; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-        ctx.fillText(text, L + panels * pw + (panels - 1) * gap - 4, y - 2);
-      };
-      mark(d.satF, '#ff6b6b', 'saturation');
-      mark(d.floorF, '#6f8fd8', 'noise floor');
-      ctx.fillStyle = '#8a939d'; ctx.textBaseline = 'top';
       for (let pi = 0; pi < panels; pi++) {
-        const x0 = L + pi * (pw + gap);
+        const [ox, oy] = origin(pi);
+        const Y = (f) => oy + (1 - f) * ph; // f = fraction of the level range
+        ctx.strokeStyle = 'rgba(138,147,157,.28)';
+        ctx.fillStyle = '#8a939d';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        const ticks = rows > 1 ? d.ticks.filter((_, k) => k % 2 === 0) : d.ticks;
+        for (const [f, label] of ticks) {
+          const y = Math.round(Y(f)) + 0.5;
+          ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + pw, y); ctx.stroke();
+          if (pi % cols === 0) ctx.fillText(label, L - 6, y);
+        }
+        const mark = (f, color, text) => {
+          if (f === null || f < 0 || f > 1) return;
+          const y = Math.round(Y(f)) + 0.5;
+          ctx.strokeStyle = color; ctx.setLineDash([4, 3]);
+          ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + pw, y); ctx.stroke();
+          ctx.setLineDash([]);
+          if (pi === panels - 1 || cols === 1) { ctx.fillStyle = color; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(text, ox + pw - 4, y - 2); }
+        };
+        mark(d.satF, '#ff6b6b', 'saturation');
+        mark(d.floorF, '#6f8fd8', 'noise floor');
         ctx.strokeStyle = '#2a2f36';
-        ctx.strokeRect(x0 + 0.5, T + 0.5, pw, ph);
-        if (panels > 1) { ctx.fillStyle = opt.channels[pi].color; ctx.textAlign = 'left'; ctx.fillText(opt.channels[pi].name, x0 + 4, T + 3); }
+        ctx.strokeRect(ox + 0.5, oy + 0.5, pw, ph);
+        if (panels > 1) { ctx.fillStyle = opt.channels[pi].color; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(opt.channels[pi].name, ox + 4, oy + 3); }
       }
-      ctx.fillStyle = '#8a939d'; ctx.textAlign = 'left';
-      ctx.fillText('image left → right', L + 2, T + ph + 6);
+      ctx.fillStyle = '#8a939d'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('image left \u2192 right', L + 2, T + rows * ph + (rows - 1) * gap + 6);
     }
 
     /** counts[c][y * nx + x] for the visible channels, plus the level mapping. */
@@ -168,16 +171,17 @@
       if (!s || !this.tip) return;
       const r = this.canvas.getBoundingClientRect();
       const mx = e.clientX - r.left, my = e.clientY - r.top;
-      let pi = Math.floor((mx - s.L) / (s.pw + s.gap));
-      const px = mx - s.L - pi * (s.pw + s.gap);
-      if (pi < 0 || pi >= s.panels || px < 0 || px > s.pw || my < s.T || my > s.T + s.ph) { this.tip.hidden = true; return; }
-      const f = 1 - (my - s.T) / s.ph;
-      const col = Math.round(s.rect.x0 + (px / s.pw) * (s.rect.x1 - s.rect.x0));
+      const col = Math.floor((mx - s.L) / (s.pw + s.gap)), row = Math.floor((my - s.T) / (s.ph + s.gap));
+      const pi = row * s.cols + col;
+      const px = mx - s.L - col * (s.pw + s.gap), py = my - s.T - row * (s.ph + s.gap);
+      if (col < 0 || row < 0 || col >= s.cols || pi >= s.panels || px < 0 || px > s.pw || py < 0 || py > s.ph) { this.tip.hidden = true; return; }
+      const f = 1 - py / s.ph;
+      const column = Math.round(s.rect.x0 + (px / s.pw) * (s.rect.x1 - s.rect.x0));
       const lvl = s.d.ev ? `${(EV_MIN + f * -EV_MIN).toFixed(1)} EV` : `${Math.round(s.d.lo + f * (s.d.white - s.d.lo))} DN`;
       const chans = s.panels > 1 ? [s.opt.channels[pi]] : s.opt.channels;
       const bx = Math.min(s.nx - 1, Math.floor((px / s.pw) * s.nx)), by = Math.min(s.ny - 1, Math.floor((1 - f) * s.ny));
       const parts = chans.map((ch) => { const n = s.d.counts[ch.c] ? s.d.counts[ch.c][by * s.nx + bx] * (s.d.step / 2) : 0; return `<span style="color:${ch.color}">${ch.name}</span> ${n}`; });
-      this.tip.innerHTML = `column ${col}, level ${lvl}<br>${parts.join(' · ')} px`;
+      this.tip.innerHTML = `column ${column}, level ${lvl}<br>${parts.join(' · ')} px`;
       this.tip.hidden = false;
       const tw = this.tip.offsetWidth;
       this.tip.style.left = Math.min(mx + 12, s.W - tw - 4) + 'px';

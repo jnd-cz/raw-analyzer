@@ -112,6 +112,7 @@
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="hist" role="tab">Histogram</button>
         <button class="tab" data-tab="stats" role="tab">Statistics</button>
+        <button class="tab" data-tab="sensor" role="tab" title="Sensor estimate, banding, hot pixels, flat field and dust">Sensor</button>
         <button class="tab" data-tab="meta" role="tab">Metadata</button>
         <button class="tab" data-tab="info" role="tab">File</button>
         <button class="tab" data-tab="compare" role="tab">Compare</button>
@@ -160,6 +161,7 @@
             <select id="histLayout">
               <option value="overlay">Overlay</option>
               <option value="stacked">Per channel</option>
+              <option value="side">Per channel, side by side</option>
             </select>
           </label>
           <label class="chk"><input type="checkbox" id="histSubBlack"> Subtract black</label>
@@ -184,16 +186,37 @@
         <div class="table-wrap">
           <table class="data" id="quickStats"></table>
         </div>
+        <h3>Exposure</h3>
+        <div id="exposureNotes" class="notes"></div>
       </div>
 
       <div class="tabpane" id="tab-stats">
         <h3>Channel statistics <span class="muted" id="statsArea"></span></h3>
         <div class="table-wrap"><table class="data" id="fullStats"></table></div>
-        <h3>Exposure</h3>
-        <div id="exposureNotes" class="notes"></div>
         <h3>Shadows and noise floor <span class="muted" id="noiseSource"></span></h3>
         <div class="table-wrap"><table class="data" id="shadowStats"></table></div>
         <div id="shadowNotes" class="notes"></div>
+        <h3>Levels <span class="muted">(used for EV scale, clipping and preview)</span></h3>
+        <table class="data levels" id="levelsTable"></table>
+        <div class="row-actions">
+          <button class="btn small" id="btnLevelsReset">Reset to file values</button>
+          <button class="btn small" id="btnBlackFromMasked">Black from masked area</button>
+          <button class="btn small" id="btnWhiteFromMax">White from data max</button>
+        </div>
+        <h3>Optical black (masked pixels)</h3>
+        <div class="table-wrap"><table class="data" id="maskedStats"></table></div>
+        <button class="btn small" id="btnStatsCsv">Export statistics CSV</button>
+      </div>
+
+      <div class="tabpane" id="tab-sensor">
+        <h3>Sensor estimate <span class="muted">(photon transfer, from this image)</span></h3>
+        <div class="kv" id="ptcKv"><div class="muted">Computing&hellip;</div></div>
+        <div class="chart-wrap ptc" id="ptcWrap">
+          <canvas id="ptcCanvas"></canvas>
+          <div class="tooltip" id="ptcTip" hidden></div>
+        </div>
+        <div class="table-wrap"><table class="data" id="pushTable"></table></div>
+        <div id="ptcNotes" class="notes"></div>
         <h3>Pattern noise <span class="muted" id="patternSource">(banding)</span></h3>
         <div class="table-wrap"><table class="data" id="patternStats"></table></div>
         <div id="patternNotes" class="notes"></div>
@@ -213,24 +236,6 @@
           <button class="btn small" id="btnDustCsv">Export CSV</button>
         </div>
         <div class="table-wrap"><table class="data click" id="flatSpots"></table></div>
-        <h3>Sensor estimate <span class="muted">(photon transfer, from this image)</span></h3>
-        <div class="kv" id="ptcKv"><div class="muted">Computing&hellip;</div></div>
-        <div class="chart-wrap ptc" id="ptcWrap">
-          <canvas id="ptcCanvas"></canvas>
-          <div class="tooltip" id="ptcTip" hidden></div>
-        </div>
-        <div class="table-wrap"><table class="data" id="pushTable"></table></div>
-        <div id="ptcNotes" class="notes"></div>
-        <h3>Levels <span class="muted">(used for EV scale, clipping and preview)</span></h3>
-        <table class="data levels" id="levelsTable"></table>
-        <div class="row-actions">
-          <button class="btn small" id="btnLevelsReset">Reset to file values</button>
-          <button class="btn small" id="btnBlackFromMasked">Black from masked area</button>
-          <button class="btn small" id="btnWhiteFromMax">White from data max</button>
-        </div>
-        <h3>Optical black (masked pixels)</h3>
-        <div class="table-wrap"><table class="data" id="maskedStats"></table></div>
-        <button class="btn small" id="btnStatsCsv">Export statistics CSV</button>
       </div>
 
       <div class="tabpane" id="tab-meta">
