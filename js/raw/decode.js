@@ -470,7 +470,13 @@
     if (end - start < 12) return null;
     const b = [];
     for (let i = start; i + 2 <= end; i += 2) b.push(blockMean(i));
-    const tolOf = (v) => Math.max(4, v * 0.006);
+    // at high ISO the block means scatter more (noise, column pattern): the
+    // tolerance follows the scatter between neighbouring blocks (robust estimate)
+    const dif = [];
+    for (let k = 1; k < b.length; k++) dif.push(Math.abs(b[k] - b[k - 1]));
+    dif.sort((p, q) => p - q);
+    const scatter = dif.length ? (1.4826 * dif[dif.length >> 1]) / Math.SQRT2 : 0;
+    const tolOf = (v) => Math.max(4, v * 0.006, 4 * scatter);
     // the black level is the densest cluster of block levels (borders can
     // also hold blanking columns near 0 or other dark-but-different columns)
     let ref = b[0], bestCount = -1;
@@ -526,17 +532,21 @@
       const vertical = r.y1 - r.y0 >= r.x1 - r.x0;
       const len = vertical ? r.y1 - r.y0 : r.x1 - r.x0;
       const segs = [];
+      let s2 = 0, sAll = 0, nAll = 0;
       for (let k = 0; k < 16; k++) {
         const a = Math.floor((k * len) / 16), e = Math.floor(((k + 1) * len) / 16);
         let s = 0, n = 0;
         for (let i = a; i < e; i += 3) {
-          if (vertical) { const o = (r.y0 + i) * W; for (let x = r.x0; x < r.x1; x++) { s += raw[o + x]; n++; } }
-          else for (let y = r.y0; y < r.y1; y += 2) { s += raw[y * W + r.x0 + i]; n++; }
+          if (vertical) { const o = (r.y0 + i) * W; for (let x = r.x0; x < r.x1; x++) { const v = raw[o + x]; s += v; s2 += v * v; n++; } }
+          else for (let y = r.y0; y < r.y1; y += 2) { const v = raw[y * W + r.x0 + i]; s += v; s2 += v * v; n++; }
         }
-        if (n) segs.push(s / n);
+        if (n) { segs.push(s / n); sAll += s; nAll += n; }
       }
       const mean = segs.reduce((p, q) => p + q, 0) / segs.length;
-      return Math.max(...segs) - Math.min(...segs) <= Math.max(6, mean * 0.01) ? r : null;
+      // a gradient below a third of the pixel noise is harmless (high-ISO borders of
+      // the 5D Mark II fall by ~25 DN towards the bottom); lit strips vary far more
+      const sd = nAll ? Math.sqrt(Math.max(0, s2 / nAll - (sAll / nAll) ** 2)) : 0;
+      return Math.max(...segs) - Math.min(...segs) <= Math.max(6, mean * 0.01, sd / 3) ? r : null;
     };
     // fixed preference (left like LibRaw and RawDigger, then top, right, bottom)
     // every valid strip is kept: the pattern-noise analysis needs a vertical one
@@ -582,6 +592,30 @@
     }
     for (let c = 0; c < 4; c++) for (let v = 0; v < 65536; v++) count[c] += hist[c][v];
     return { hist, count };
+  }
+
+  /**
+   * Digital gain: when the camera multiplies the data in software (the 5D Mark II's
+   * ISO 6400, 12800 and 25600 are ISO 3200 x 2, 4 and 8) only every k-th raw value
+   * occurs. Returns the largest k in 2..16 for which the green values in the central
+   * 98% fall into a single residue class mod k, or 1.
+   */
+  function digitalGain(h, n) {
+    if (!h || n < 10000) return 1;
+    let acc = 0, lo = -1, hi = -1;
+    for (let v = 0; v < 65536; v++) {
+      acc += h[v];
+      if (lo < 0 && acc > n * 0.01) lo = v;
+      if (acc >= n * 0.99) { hi = v; break; }
+    }
+    for (const k of [16, 8, 4, 2]) {
+      if (hi - lo < 6 * k) continue; // too narrow a spread to tell
+      const r = new Float64Array(k);
+      let tot = 0;
+      for (let v = lo; v <= hi; v++) { r[v % k] += h[v]; tot += h[v]; }
+      if (Math.max(...r) > 0.97 * tot) return k;
+    }
+    return 1;
   }
 
   /** Returns the level where clipped pixels start piling up, or null. */
@@ -708,6 +742,7 @@
     // means clipping. Newer bodies clip at one exact value, the D30/D60 era
     // sensors spread the clipped pixels over a few codes.
     const full = channelHistograms(res);
+    res.digitalGain = res.colors4 ? 1 : digitalGain(full.hist[1], full.count[1]);
     let max = 0;
     for (const h of full.hist) for (let v = 65535; v > max; v--) if (h[v]) { max = v; break; }
     let atMax = 0;
@@ -767,7 +802,8 @@
     add('Date', f.date ? f.date + (f.subsec ? '.' + f.subsec : '') : '');
     add('Shutter', f.exposureTime ? RL.fmtShutter(f.exposureTime) : '');
     add('Aperture', f.fnumber ? 'f/' + RL.fmtNum(f.fnumber, 1) : '');
-    add('ISO', f.iso ? f.iso + (si.realISO && Math.abs(si.realISO - f.iso) > 1 ? ' (actual ' + si.realISO + ')' : '') : (si.realISO || ''));
+    const dg = res.digitalGain > 1 ? `, digital: ISO ${Math.round((f.iso || si.realISO) / res.digitalGain)} data multiplied by ${res.digitalGain} (only every ${['', '', '2nd', '', '4th', '', '', '', '8th'][res.digitalGain] || res.digitalGain + 'th'} raw value occurs)` : '';
+    add('ISO', f.iso ? f.iso + (si.realISO && Math.abs(si.realISO - f.iso) > 1 ? ' (actual ' + si.realISO + ')' : '') + dg : (si.realISO || ''));
     add('Exposure comp.', f.ec !== undefined ? (f.ec > 0 ? '+' : '') + RL.fmtNum(f.ec, 2) + ' EV' : '');
     // scene brightness: the camera's meter reading (Canon MeasuredEV, a light value)
     // or EXIF BrightnessValue, next to the light value the exposure settings imply
