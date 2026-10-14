@@ -72,7 +72,7 @@
       this.onHover = null; this.onSelect = null; this.onPick = null; this.onZoom = null;
       this._hqTimer = 0;
       this._raf = 0;
-      this.demosaic = 'quick';
+      this.demosaic = 'ahd';
       this.dmCache = null; this._dmWant = null; this._dmGen = 0; this._dmTimer = 0; this._dmStatus = '';
       this.onDemosaicStatus = null;
       this._bindEvents();
@@ -268,7 +268,10 @@
       // demosaiced data for the visible area (camera RGB, white balanced, 0..65535)
       let dm = null, dmM = null;
       if (mode === 'rgb' && this.demosaic !== 'quick') {
-        if (sd > 0.99) { // 100% zoom may land a hair below 1
+        // from 100% on the zoom label or one raw pixel per device pixel, whichever comes
+        // first (browser zoom or display scaling can put device pixels below CSS pixels);
+        // 0.99: zooming to 100% may land a hair below 1
+        if (Math.max(this.scale, sd) > 0.99) {
           const vr = {
             x0: Math.max(bnd.left, Math.floor(this.ox)), y0: Math.max(bnd.top, Math.floor(this.oy)),
             x1: Math.min(bnd.right, Math.ceil(this.ox + W / sd)), y1: Math.min(bnd.bottom, Math.ceil(this.oy + H / sd)),

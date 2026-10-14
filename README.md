@@ -68,11 +68,11 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   raw CFA mosaic, single channel views, clipped and below-black overlays,
   masked border view, zoom to 3200 %, pixel read-out of the 2×2 CFA block under
   the cursor.
-- **Demosaicing**: the quick preview draws each 2×2 CFA block as one pixel. The
-  *Demosaic* menu switches to Bilinear, PPG or AHD (ports of LibRaw, bit-exact
-  against it) from 100 % zoom (one raw pixel per screen pixel) upwards. Only the
-  visible area plus a margin is processed, in strips on a pool of Web Workers (one
-  per CPU core, up to 12). CMYG sensors always use bilinear.
+- **Demosaicing**: below 100 % zoom the preview draws each 2×2 CFA block as one
+  pixel. From 100 % the visible area plus a margin is demosaiced with AHD (default),
+  PPG or bilinear, chosen under *Detail ≥100%* (ports of LibRaw, bit-exact against
+  it), in strips on a pool of Web Workers (one per CPU core, up to 12). CMYG sensors
+  always use bilinear.
 - **Export image** (Ctrl+E): full-size or selection, demosaiced with AHD, PPG or
   bilinear, with the current white balance and exposure, as JPEG, PNG 8/16 bit or
   16-bit TIFF (deflate + predictor), in sRGB or Adobe RGB (1998). Files carry an

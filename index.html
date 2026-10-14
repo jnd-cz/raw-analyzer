@@ -41,12 +41,12 @@
             <option value="G2">Channel G2</option>
           </select>
         </label>
-        <label class="ctl" title="Demosaicing for the RGB view. The quick view renders each 2x2 CFA block as one pixel. A full algorithm is used from 100% zoom (one raw pixel per screen pixel) for the visible area only.">Demosaic
+        <label class="ctl" title="Demosaicing used for the RGB view from 100% zoom, for the visible area only. Below 100% the quick view renders each 2x2 CFA block as one pixel, which already shows all the detail the screen can.">Detail &ge;100%
           <select id="demosaic">
-            <option value="quick">Quick (2&times;2 blocks)</option>
-            <option value="bilinear">Bilinear</option>
+            <option value="ahd" selected>AHD</option>
             <option value="ppg">PPG</option>
-            <option value="ahd">AHD</option>
+            <option value="bilinear">Bilinear</option>
+            <option value="quick">Off (2&times;2 blocks)</option>
           </select>
         </label>
         <label class="ctl">WB
@@ -268,8 +268,8 @@
         a stop or more below green, so they reach the noise floor first. Read noise comes from the masked sensor border,
         or is estimated from the darkest image areas.</li>
       <li>All statistics are computed on the undemosaiced raw values. The quick preview shows each 2x2 CFA block as
-        one pixel. Choose <b>Demosaic</b> Bilinear, PPG or AHD (ports of LibRaw) for full detail: it is used from 100%
-        zoom for the visible area, computed on several CPU threads.</li>
+        one pixel. From 100% zoom the visible area is demosaiced with the algorithm chosen under <b>Detail &ge;100%</b>
+        (AHD by default; PPG and bilinear are faster), computed on several CPU threads.</li>
       <li><b>Export image</b> saves the image with the current white balance and exposure as JPEG, PNG or 16-bit
         TIFF, in sRGB or Adobe RGB with an embedded ICC profile.</li>
       <li>Supported: Canon CRW (CIFF), CR2, CR3 (lossless and C-RAW), EOS-1D / 1Ds TIF.</li>
