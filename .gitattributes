@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.CRW binary
+*.crw binary
+*.CR2 binary
+*.cr2 binary
+*.CR3 binary
+*.cr3 binary
+*.TIF binary
+*.tif binary

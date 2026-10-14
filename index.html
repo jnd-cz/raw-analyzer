@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raw Analyzer</title>
+  <meta name="description" content="Inspect Canon raw files: per-channel raw histograms, statistics, clipping and metadata. Runs locally in the browser.">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="#ff5a52"/><rect x="13" y="2" width="9" height="9" rx="1.5" fill="#4cc96a"/><rect x="2" y="13" width="9" height="9" rx="1.5" fill="#2fb3a6"/><rect x="13" y="13" width="9" height="9" rx="1.5" fill="#4d8dff"/></svg>
+      <span>Raw Analyzer</span>
+    </div>
+    <button id="btnOpen" class="btn primary" title="Open a raw file (Ctrl+O)">Open raw&hellip;</button>
+    <input id="fileInput" type="file" accept=".crw,.cr2,.cr3,.tif,.tiff,.CRW,.CR2,.CR3,.TIF" hidden>
+    <button id="btnExport" class="btn" title="Save a developed image: JPEG, PNG or 16-bit TIFF (Ctrl+E)" disabled>Export image&hellip;</button>
+    <div id="fileTitle" class="file-title"></div>
+    <div class="spacer"></div>
+    <div id="progress" class="progress" hidden><div class="bar"></div><span class="label"></span></div>
+    <button id="btnHelp" class="btn ghost" title="Keyboard and mouse help">?</button>
+  </header>
+
+  <main id="app" class="app empty">
+    <!-- ======================== viewer ======================== -->
+    <section class="viewer-col">
+      <div class="toolbar" id="viewerToolbar">
+        <div class="group" role="group" aria-label="Tool">
+          <button class="tool active" data-tool="pan" title="Pan and zoom (drag, wheel)">Pan</button>
+          <button class="tool" data-tool="select" title="Select an area for the histogram (or Shift+drag)">Select</button>
+          <button class="tool" data-tool="wb" title="Click a neutral area to set white balance">WB pick</button>
+        </div>
+        <label class="ctl">View
+          <select id="viewMode">
+            <option value="rgb">RGB render</option>
+            <option value="cfa">Raw CFA mosaic</option>
+            <option value="R">Channel R</option>
+            <option value="G">Channel G</option>
+            <option value="B">Channel B</option>
+            <option value="G2">Channel G2</option>
+          </select>
+        </label>
+        <label class="ctl" title="Demosaicing for the RGB view. The quick view renders each 2x2 CFA block as one pixel. A full algorithm is used from 100% zoom (one raw pixel per screen pixel) for the visible area only.">Demosaic
+          <select id="demosaic">
+            <option value="quick">Quick (2&times;2 blocks)</option>
+            <option value="bilinear">Bilinear</option>
+            <option value="ppg">PPG</option>
+            <option value="ahd">AHD</option>
+          </select>
+        </label>
+        <label class="ctl">WB
+          <select id="wbMode">
+            <option value="asshot">As shot</option>
+            <option value="auto">Auto (gray world)</option>
+            <option value="none">None (UniWB)</option>
+            <option value="custom" disabled>Picked</option>
+          </select>
+        </label>
+        <label class="ctl" title="Preview exposure only, the analysis always uses raw values">Exp
+          <input id="exposure" type="range" min="-4" max="6" step="0.1" value="0">
+          <output id="exposureOut">0.0</output>
+        </label>
+        <button id="btnAutoExp" class="btn small" title="Auto exposure for the preview">Auto</button>
+        <div class="group toggles">
+          <label class="chk" title="Mark pixels where any channel reaches the saturation level"><input type="checkbox" id="showClip" checked> Clipped</label>
+          <label class="chk" title="Mark dark areas where the weakest colour channel is within the chosen number of read-noise sigmas of black (that channel decides how much colour noise a shadow lift brings out)"><input type="checkbox" id="showUnder"> Shadows</label>
+          <select id="underK" class="mini" title="Shadow overlay threshold">
+            <option value="1">&lt; 1&sigma; (noise floor)</option>
+            <option value="2">&lt; 2&sigma;</option>
+            <option value="4">&lt; 4&sigma;</option>
+            <option value="10">&lt; 10&sigma;</option>
+            <option value="0">&le; black</option>
+          </select>
+          <label class="chk" title="Show the masked (optical black) border of the sensor"><input type="checkbox" id="showMasked"> Masked area</label>
+        </div>
+        <div class="spacer"></div>
+        <div class="group">
+          <button class="btn small" id="zoomOut" title="Zoom out (-)">&minus;</button>
+          <button class="btn small" id="zoomLabel" title="Toggle fit / 100% (0)">Fit</button>
+          <button class="btn small" id="zoomIn" title="Zoom in (+)">+</button>
+        </div>
+      </div>
+      <div class="viewport" id="viewport">
+        <canvas id="view"></canvas>
+        <div class="drop-hint" id="dropHint">
+          <div class="drop-card">
+            <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 6v24m0 0-9-9m9 9 9-9M8 34v6h32v-6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <h2>Drop a Canon raw file here</h2>
+            <p>CRW, CR2, CR3 and EOS-1D / 1Ds TIF. Everything is decoded locally in your browser. Nothing is uploaded.</p>
+            <button class="btn primary" id="btnOpen2">Choose file&hellip;</button>
+          </div>
+        </div>
+        <div class="error-box" id="errorBox" hidden></div>
+      </div>
+      <div class="statusbar" id="statusbar">
+        <span id="stPos">&nbsp;</span>
+        <span id="stVals"></span>
+        <span class="spacer"></span>
+        <span id="stDemosaic" class="muted"></span>
+        <span id="stSel"></span>
+      </div>
+    </section>
+
+    <!-- ======================== side panel ======================== -->
+    <aside class="side">
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="hist" role="tab">Histogram</button>
+        <button class="tab" data-tab="stats" role="tab">Statistics</button>
+        <button class="tab" data-tab="meta" role="tab">Metadata</button>
+        <button class="tab" data-tab="info" role="tab">File</button>
+      </nav>
+
+      <div class="tabpane active" id="tab-hist">
+        <div class="controls">
+          <label class="ctl">Area
+            <select id="histArea">
+              <option value="active">Image area</option>
+              <option value="full">Full sensor</option>
+              <option value="masked">Masked border</option>
+              <option value="selection" disabled>Selection</option>
+            </select>
+          </label>
+          <label class="ctl">X axis
+            <select id="histX">
+              <option value="linear">Linear (raw)</option>
+              <option value="ev">EV below saturation</option>
+            </select>
+          </label>
+          <label class="ctl">Y axis
+            <select id="histY">
+              <option value="linear">Linear</option>
+              <option value="log">Log</option>
+            </select>
+          </label>
+          <label class="ctl">Bin
+            <select id="histBin">
+              <option value="auto">Auto</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="4">4</option>
+              <option value="8">8</option>
+              <option value="16">16</option>
+              <option value="32">32</option>
+            </select>
+          </label>
+          <label class="ctl">Layout
+            <select id="histLayout">
+              <option value="overlay">Overlay</option>
+              <option value="stacked">Per channel</option>
+            </select>
+          </label>
+          <label class="chk"><input type="checkbox" id="histSubBlack"> Subtract black</label>
+        </div>
+        <div class="legend" id="histLegend"></div>
+        <div class="chart-wrap" id="chartWrap">
+          <canvas id="histCanvas"></canvas>
+          <div class="tooltip" id="histTip" hidden></div>
+        </div>
+        <div class="chart-wrap small" id="chartWrapAll">
+          <canvas id="histCanvasAll"></canvas>
+        </div>
+        <div class="chart-actions">
+          <button class="btn small" id="btnHistCsv">Export CSV</button>
+          <button class="btn small" id="btnHistPng">Save PNG</button>
+          <span class="muted" id="histNote"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data" id="quickStats"></table>
+        </div>
+      </div>
+
+      <div class="tabpane" id="tab-stats">
+        <h3>Channel statistics <span class="muted" id="statsArea"></span></h3>
+        <div class="table-wrap"><table class="data" id="fullStats"></table></div>
+        <h3>Exposure</h3>
+        <div id="exposureNotes" class="notes"></div>
+        <h3>Shadows and noise floor <span class="muted" id="noiseSource"></span></h3>
+        <div class="table-wrap"><table class="data" id="shadowStats"></table></div>
+        <div id="shadowNotes" class="notes"></div>
+        <h3>Sensor estimate <span class="muted">(photon transfer, from this image)</span></h3>
+        <div class="kv" id="ptcKv"><div class="muted">Computing&hellip;</div></div>
+        <div class="chart-wrap ptc" id="ptcWrap">
+          <canvas id="ptcCanvas"></canvas>
+          <div class="tooltip" id="ptcTip" hidden></div>
+        </div>
+        <div class="table-wrap"><table class="data" id="pushTable"></table></div>
+        <div id="ptcNotes" class="notes"></div>
+        <h3>Levels <span class="muted">(used for EV scale, clipping and preview)</span></h3>
+        <table class="data levels" id="levelsTable"></table>
+        <div class="row-actions">
+          <button class="btn small" id="btnLevelsReset">Reset to file values</button>
+          <button class="btn small" id="btnBlackFromMasked">Black from masked area</button>
+          <button class="btn small" id="btnWhiteFromMax">White from data max</button>
+        </div>
+        <h3>Optical black (masked pixels)</h3>
+        <div class="table-wrap"><table class="data" id="maskedStats"></table></div>
+        <button class="btn small" id="btnStatsCsv">Export statistics CSV</button>
+      </div>
+
+      <div class="tabpane" id="tab-meta">
+        <div class="kv" id="summary"></div>
+        <input type="search" id="metaFilter" placeholder="Filter tags&hellip;" class="search">
+        <div id="metaGroups"></div>
+      </div>
+
+      <div class="tabpane" id="tab-info">
+        <div class="kv" id="rawInfo"></div>
+        <h3>Embedded images</h3>
+        <div class="thumbs" id="thumbs"></div>
+      </div>
+    </aside>
+  </main>
+
+  <div class="overlay" id="dropOverlay" hidden><div>Drop to open</div></div>
+
+  <dialog id="exportDialog" class="export">
+    <form method="dialog" id="exportForm">
+      <h2>Export image</h2>
+      <div class="form-grid">
+        <label for="exFormat">Format</label>
+        <select id="exFormat">
+          <option value="jpeg">JPEG (8 bit)</option>
+          <option value="png8">PNG 8 bit</option>
+          <option value="png16">PNG 16 bit</option>
+          <option value="tiff16" selected>TIFF 16 bit (deflate)</option>
+        </select>
+        <label for="exQuality" id="exQualityLabel">Quality</label>
+        <span class="inline" id="exQualityRow"><input type="range" id="exQuality" min="50" max="100" value="92"><output id="exQualityOut">92</output></span>
+        <label for="exSpace">Colour space</label>
+        <select id="exSpace">
+          <option value="srgb">sRGB</option>
+          <option value="adobe">Adobe RGB (1998)</option>
+        </select>
+        <label for="exAlgo">Demosaic</label>
+        <select id="exAlgo">
+          <option value="ahd">AHD</option>
+          <option value="ppg">PPG</option>
+          <option value="bilinear">Bilinear</option>
+        </select>
+        <label for="exArea">Area</label>
+        <select id="exArea">
+          <option value="active">Image area</option>
+          <option value="selection" disabled>Selection</option>
+        </select>
+        <span></span>
+        <label class="chk" id="exRotateRow"><input type="checkbox" id="exRotate" checked> Rotate as shot</label>
+      </div>
+      <p class="muted" id="exNote"></p>
+      <div class="progress wide" id="exProgress" hidden><div class="bar"></div><span class="label"></span></div>
+      <div class="row-actions end">
+        <button type="button" class="btn" id="exCancel">Cancel</button>
+        <button type="button" class="btn primary" id="exGo">Export</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="helpDialog">
+    <h2>Raw Analyzer</h2>
+    <ul>
+      <li><b>Open</b>: button, Ctrl+O, or drag a file onto the window.</li>
+      <li><b>Zoom</b>: mouse wheel at the cursor, + / - keys, 0 toggles fit and 100%, double click fits.</li>
+      <li><b>Pan</b>: drag with the Pan tool, or hold Space and drag with any tool.</li>
+      <li><b>Select</b>: drag with the Select tool, or Shift+drag. The histogram switches to the selection. Esc clears it.</li>
+      <li><b>WB pick</b>: click a neutral (grey or white) area to set the preview white balance.</li>
+      <li><b>Clipped</b> marks 2x2 blocks where any channel reaches saturation (magenta). <b>Shadows</b> marks blocks whose
+        weakest colour channel is below the chosen number of read-noise sigmas (blue). Red and blue usually sit
+        a stop or more below green, so they reach the noise floor first. Read noise comes from the masked sensor border,
+        or is estimated from the darkest image areas.</li>
+      <li>All statistics are computed on the undemosaiced raw values. The quick preview shows each 2x2 CFA block as
+        one pixel. Choose <b>Demosaic</b> Bilinear, PPG or AHD (ports of LibRaw) for full detail: it is used from 100%
+        zoom for the visible area, computed on several CPU threads.</li>
+      <li><b>Export image</b> saves the image with the current white balance and exposure as JPEG, PNG or 16-bit
+        TIFF, in sRGB or Adobe RGB with an embedded ICC profile.</li>
+      <li>Supported: Canon CRW (CIFF), CR2, CR3 (lossless and C-RAW), EOS-1D / 1Ds TIF.</li>
+    </ul>
+    <p class="muted">Decoders ported from dcraw and LibRaw (LGPL 2.1 / CDDL 1.0).</p>
+    <form method="dialog"><button class="btn primary">Close</button></form>
+  </dialog>
+
+  <script src="js/raw/core.js"></script>
+  <script src="js/raw/ljpeg.js"></script>
+  <script src="js/raw/crw.js"></script>
+  <script src="js/raw/crx.js"></script>
+  <script src="js/raw/cr3.js"></script>
+  <script src="js/raw/meta.js"></script>
+  <script src="js/raw/canon-color.js"></script>
+  <script src="js/raw/canon-lenses.js"></script>
+  <script src="js/raw/canon-geometry.js"></script>
+  <script src="js/raw/decode.js"></script>
+  <script src="js/raw/demosaic.js"></script>
+  <script src="js/app/decoder-host.js"></script>
+  <script src="js/app/demosaic-host.js"></script>
+  <script src="js/app/export.js"></script>
+  <script src="js/app/analysis.js"></script>
+  <script src="js/app/histogram.js"></script>
+  <script src="js/app/viewer.js"></script>
+  <script src="js/app/main.js"></script>
+</body>
+</html>
