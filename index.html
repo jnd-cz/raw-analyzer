@@ -15,6 +15,8 @@
     </div>
     <button id="btnOpen" class="btn primary" title="Open a raw file (Ctrl+O)">Open raw&hellip;</button>
     <input id="fileInput" type="file" accept=".crw,.cr2,.cr3,.tif,.tiff,.CRW,.CR2,.CR3,.TIF" hidden>
+    <button id="btnScan" class="btn" title="List every raw file in a folder: settings, lens, scene brightness, shutter count and exposure">Scan folder&hellip;</button>
+    <input id="folderInput" type="file" webkitdirectory multiple hidden>
     <button id="btnCompare" class="btn" title="Open a second raw file to compare with this one" disabled>Compare with&hellip;</button>
     <input id="fileInputB" type="file" accept=".crw,.cr2,.cr3,.tif,.tiff,.CRW,.CR2,.CR3,.TIF" hidden>
     <button id="btnExport" class="btn" title="Save a developed image: JPEG, PNG or 16-bit TIFF (Ctrl+E)" disabled>Export image&hellip;</button>
@@ -237,6 +239,20 @@
 
   <div class="overlay" id="dropOverlay" hidden><div>Drop to open</div></div>
 
+  <dialog id="scanDialog" class="scan">
+    <div class="scan-head">
+      <h2>Folder scan</h2>
+      <span class="muted" id="scanStatus"></span>
+      <span class="spacer"></span>
+      <input type="search" id="scanFilter" class="search" placeholder="Filter by file, camera, lens or date">
+      <button class="btn small" id="scanStop" hidden>Stop</button>
+      <button class="btn small" id="scanCsv">Export CSV</button>
+      <button class="btn small" id="scanClose">Close</button>
+    </div>
+    <p class="muted scan-note">Click a column to sort, a row to open the file. Exposure figures are for the image area, in EV below saturation.</p>
+    <div class="scan-table"><table class="data click" id="scanTable"></table></div>
+  </dialog>
+
   <dialog id="exportDialog" class="export">
     <form method="dialog" id="exportForm">
       <h2>Export image</h2>
@@ -315,6 +331,7 @@
   <script src="js/app/decoder-host.js"></script>
   <script src="js/app/demosaic-host.js"></script>
   <script src="js/app/export.js"></script>
+  <script src="js/app/scan.js"></script>
   <script src="js/app/analysis.js"></script>
   <script src="js/app/histogram.js"></script>
   <script src="js/app/viewer.js"></script>

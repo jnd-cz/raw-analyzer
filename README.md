@@ -65,6 +65,11 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   read noise, gain, full well, dynamic range, banding, defects, with differences in
   EV) and overlays their histograms on an EV scale, so bodies with different bit
   depths compare directly. *Swap A and B* shows the other file in the viewer.
+- **Folder scan**: *Scan folder…* lists every raw file in a folder and its
+  subfolders: date, camera, lens, focal length, exposure, meter reading, shutter
+  count, camera temperature, median and brightest levels and clipping. Files are
+  decoded on several worker threads (about 40 mixed files in 7 s). Sort by any
+  column, filter, export CSV, or click a row to open the file.
 - **Levels**: black level per channel and saturation level. Defaults come from
   Canon ColorData, the masked border, LibRaw's camera table, or clipping detected
   in the data (including the D30/D60 sensors, whose clipped pixels spread over a few
@@ -130,6 +135,7 @@ js/raw/*.js           decoders (run in a Web Worker)
   decode.js           format detection, metadata, levels, summary
   demosaic.js         bilinear, PPG, AHD (LibRaw ports) and the develop step
 js/app/*.js           user interface
+  scan.js             folder scan (worker pool, table, CSV)
   demosaic-host.js    worker pool: strips with overlap, parallel demosaic/develop
   export.js           export dialog, PNG/TIFF/JPEG writers, ICC profiles, Exif
 ```

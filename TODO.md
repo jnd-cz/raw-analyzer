@@ -14,8 +14,8 @@
 - [x] Hot and stuck pixel map for dark frames and long exposures: list, count per channel,
       viewer overlay, CSV export (validate thresholds on real dark frames)
 - [x] Compare two files side by side: statistics, histograms, noise and PTC estimates
-- [ ] Folder scan: table of date, lens, settings, shutter count, scene brightness and clipping
-      for every raw file in a folder (check whether directory access works from file://)
+- [x] Folder scan: table of date, lens, settings, shutter count, scene brightness and clipping
+      for every raw file in a folder (folder picker input, works from file:// too)
 
 ## Improvements
 - [ ] Faster AHD (now about 4x slower than PPG); keep the LibRaw-exact version for checks

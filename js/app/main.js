@@ -1077,6 +1077,7 @@
     onDone: (msg) => { $('stDemosaic').textContent = msg; },
   }));
   $('btnExport').onclick = () => ImageExport.open();
+  FolderScan.init((file) => openFile(file));
   $('wbMode').onchange = (e) => { state.wbMode = e.target.value; viewer.wb = currentWB(); viewer.requestRender(); };
   $('exposure').oninput = (e) => setExposure(+e.target.value);
   $('btnAutoExp').onclick = () => { if (state.img) autoExposure(Analysis.computeStats(histFor('active'), state.levels, state.sigma)); };
