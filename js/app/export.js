@@ -75,58 +75,6 @@
     return out;
   }
 
-  // ------------------------------------------------------------ TIFF / Exif structures (little endian)
-  const TSZ = { 2: 1, 3: 2, 4: 4, 5: 8, 7: 1 };
-  function valueBytes(e) {
-    const { type } = e;
-    if (type === 2) return te.encode(String(e.value).replace(/[^\x20-\x7e]/g, '?') + '\0');
-    if (type === 7) return e.value;
-    const vals = Array.isArray(e.value) ? e.value : [e.value];
-    const b = new Uint8Array(vals.length * TSZ[type]), v = new DataView(b.buffer);
-    vals.forEach((x, i) => {
-      if (type === 3) v.setUint16(2 * i, x, true);
-      else if (type === 4) v.setUint32(4 * i, x, true);
-      else { v.setUint32(8 * i, x[0], true); v.setUint32(8 * i + 4, x[1], true); }
-    });
-    return b;
-  }
-  const ifdSize = (es) => 6 + 12 * es.length + es.reduce((s, e) => s + (e.bytes.length > 4 ? (e.bytes.length + 1) & ~1 : 0), 0);
-  function writeIFD(out, at, es) {
-    const v = new DataView(out.buffer, out.byteOffset);
-    v.setUint16(at, es.length, true);
-    let data = at + 6 + 12 * es.length;
-    es.forEach((e, i) => {
-      const p = at + 2 + 12 * i;
-      v.setUint16(p, e.tag, true); v.setUint16(p + 2, e.type, true);
-      v.setUint32(p + 4, e.bytes.length / TSZ[e.type], true);
-      if (e.bytes.length <= 4) out.set(e.bytes, p + 8);
-      else { v.setUint32(p + 8, data, true); out.set(e.bytes, data); data += (e.bytes.length + 1) & ~1; }
-    });
-    v.setUint32(at + 2 + 12 * es.length, 0, true);
-  }
-  /**
-   * Header + IFD0 (+ Exif IFD). fill(len) may change values of IFD0 entries once
-   * the block length is known (strip offsets); value sizes must stay the same.
-   */
-  function tiffBlock(ifd0, exif, fill) {
-    const prep = (list) => list.filter(Boolean).sort((a, b) => a.tag - b.tag);
-    ifd0 = prep(ifd0); exif = prep(exif);
-    const ptr = exif.length ? { tag: 34665, type: 4, value: 0 } : null;
-    if (ptr) ifd0 = prep([...ifd0, ptr]);
-    const bytesAll = () => { for (const e of [...ifd0, ...exif]) e.bytes = valueBytes(e); };
-    bytesAll();
-    const s0 = ifdSize(ifd0), s1 = exif.length ? ifdSize(exif) : 0;
-    const len = 8 + s0 + s1;
-    if (ptr) ptr.value = 8 + s0;
-    if (fill) fill(len);
-    bytesAll();
-    const out = new Uint8Array(len);
-    out.set([0x49, 0x49, 42, 0, 8, 0, 0, 0]);
-    writeIFD(out, 8, ifd0);
-    if (exif.length) writeIFD(out, 8 + s0, exif);
-    return out;
-  }
-
   const rational = (x, den) => [Math.round(x * den), den];
   function metaTags(img, sp) {
     const f = img.facts || {};
@@ -199,6 +147,17 @@
     const fmt = $('exFormat').value;
     $('exQualityLabel').hidden = $('exQualityRow').hidden = fmt !== 'jpeg';
     $('exQualityOut').textContent = $('exQuality').value;
+    // a DNG holds the raw frame: no demosaic, colour space or crop
+    for (const id of ['exSpace', 'exAlgo', 'exArea']) $(id).hidden = document.querySelector(`label[for=${id}]`).hidden = fmt === 'dng';
+    if (fmt === 'dng') {
+      const o = +(c.img.facts && c.img.facts.orientation) || 1;
+      $('exNote').textContent = `Raw sensor data, full frame ${c.img.width} × ${c.img.height} (${(c.img.width * c.img.height * 2 / 1048576).toFixed(0)} MB), 16 bit, ` +
+        `with the image area, black and white levels, the camera colour matrix and the current white balance (${c.wbLabel}) as shot. ` +
+        (ORIENT_TEXT[o] ? `Orientation tag: ${$('exRotate').checked ? ORIENT_TEXT[o] : 'not rotated'}. ` : '') +
+        'Opens in Lightroom, Camera Raw, darktable, RawTherapee and other raw converters.' +
+        (!c.img.colorMatrix ? ' No colour matrix is known for this camera, so sRGB primaries are assumed.' : '');
+      return;
+    }
     const g = geometry(c);
     const notes = [
       `${g.ow} × ${g.oh} px (${(g.ow * g.oh / 1e6).toFixed(1)} MP)` + (g.orient !== 1 ? ', ' + ORIENT_TEXT[g.orient] : '') + '.',
@@ -226,6 +185,12 @@
     const c = ctxFn();
     const fmt = $('exFormat').value, sp = SPACES[$('exSpace').value], algo = $('exAlgo').value;
     const g = geometry(c);
+    if (fmt === 'dng') {
+      progress(0.5, 'Writing DNG');
+      const t0 = performance.now();
+      const parts = Dng.build({ img: c.img, levels: c.levels, wb: c.wb, matrix: c.matrix, exposure: c.exposure, orient: g.orient, meta: metaTags(c.img, SPACES.srgb) });
+      return save(parts, c.baseName + '.dng', 'image/x-adobe-dng', t0);
+    }
     const p = Demosaic.params(c.img, c.levels, c.wb, algo);
     const M = c.matrix.map((r) => r.slice());
     const dev = {
@@ -286,7 +251,7 @@
         else if (!(s[1] === 0xe1 && id.startsWith('Exif')) && !(s[1] === 0xe2 && id === 'ICC_PROFILE')) head.push(s);
         at += 2 + len;
       }
-      const tiff = tiffBlock(meta.ifd0, meta.exif);
+      const tiff = TiffWriter.exifBlock(meta.ifd0, meta.exif);
       const seg = (marker, head, body) => {
         const len = 2 + head.length + body.length;
         const s = new Uint8Array(2 + len);
@@ -297,23 +262,18 @@
         seg(0xe2, Uint8Array.from([...te.encode('ICC_PROFILE\0'), 1, 1]), icc), ...head, jpg.subarray(at));
       ext = '.jpg'; type = 'image/jpeg';
     } else if (fmt === 'tiff16') {
-      const counts = tiffStrips.map((s) => s.length);
-      const n = counts.length;
-      const ifd0 = [
+      const exif = { entries: meta.exif };
+      const ifd0 = { entries: [
         { tag: 256, type: 4, value: g.ow }, { tag: 257, type: 4, value: g.oh },
         { tag: 258, type: 3, value: [16, 16, 16] }, { tag: 259, type: 3, value: 8 }, { tag: 262, type: 3, value: 2 },
-        { tag: 273, type: 4, value: new Array(n).fill(0) }, { tag: 274, type: 3, value: 1 }, { tag: 277, type: 3, value: 3 },
-        { tag: 278, type: 4, value: stripH }, { tag: 279, type: 4, value: counts },
+        { tag: 273, type: 4, blocks: tiffStrips }, { tag: 274, type: 3, value: 1 }, { tag: 277, type: 3, value: 3 },
+        { tag: 278, type: 4, value: stripH }, { tag: 279, type: 4, value: tiffStrips.map((s) => s.length) },
         { tag: 282, type: 5, value: [[300, 1]] }, { tag: 283, type: 5, value: [[300, 1]] },
         { tag: 284, type: 3, value: 1 }, { tag: 296, type: 3, value: 2 }, { tag: 317, type: 3, value: 2 },
-        { tag: 34675, type: 7, value: icc },
+        { tag: 34675, type: 7, value: icc }, { tag: 34665, type: 4, ifds: [exif] },
         ...meta.ifd0,
-      ];
-      const head = tiffBlock(ifd0, meta.exif, (len) => {
-        let o = len;
-        ifd0[5].value = counts.map((c2) => { const r = o; o += c2; return r; });
-      });
-      parts.push(head, ...tiffStrips);
+      ] };
+      parts.push(...TiffWriter.build([ifd0, exif]).parts);
       ext = '.tif'; type = 'image/tiff';
     } else {
       await pngWriter.close();
@@ -326,14 +286,18 @@
       const iccChunk = new Uint8Array(name.length + iccp.length);
       iccChunk.set(name); iccChunk.set(iccp, name.length);
       parts.push(Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk('IHDR', ihdr), pngChunk('iCCP', iccChunk),
-        pngChunk('eXIf', tiffBlock(meta.ifd0, meta.exif)));
+        pngChunk('eXIf', TiffWriter.exifBlock(meta.ifd0, meta.exif)));
       const CH = 1 << 22;
       for (let i = 0; i < z.length; i += CH) parts.push(pngChunk('IDAT', z.subarray(i, Math.min(z.length, i + CH))));
       parts.push(pngChunk('IEND', new Uint8Array(0)));
       ext = '.png'; type = 'image/png';
     }
-    const blob = new Blob(parts, { type });
     const name = c.baseName + (g.rect.x0 !== c.img.active.left || g.rect.x1 !== c.img.active.right || g.rect.y0 !== c.img.active.top || g.rect.y1 !== c.img.active.bottom ? '_crop' : '') + ext;
+    return save(parts, name, type, t0);
+  }
+
+  function save(parts, name, type, t0) {
+    const blob = new Blob(parts, { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name;
@@ -371,6 +335,10 @@
   function open() {
     const c = ctxFn();
     if (!c || !c.img) return;
+    // DNG readers do not handle 4-colour (CMYG) CFAs reliably
+    const dngOpt = $('exFormat').querySelector('option[value=dng]');
+    dngOpt.disabled = !!c.img.colors4;
+    if (dngOpt.disabled && $('exFormat').value === 'dng') $('exFormat').value = 'tiff16';
     const selOpt = $('exArea').querySelector('option[value=selection]');
     selOpt.disabled = !c.selection;
     $('exArea').value = c.selection ? 'selection' : 'active';

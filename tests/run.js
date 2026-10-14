@@ -162,7 +162,7 @@
   }
 
   // ------------------------------------------------------------ export check
-  const EXPORTS = [['tiff16', 'srgb', 'srgb.tif'], ['png16', 'srgb', 'srgb16.png'], ['jpeg', 'srgb', 'srgb.jpg'], ['jpeg', 'adobe', 'adobe.jpg'], ['png8', 'adobe', 'adobe8.png']];
+  const EXPORTS = [['tiff16', 'srgb', 'srgb.tif'], ['png16', 'srgb', 'srgb16.png'], ['jpeg', 'srgb', 'srgb.jpg'], ['jpeg', 'adobe', 'adobe.jpg'], ['png8', 'adobe', 'adobe8.png'], ['dng', 'srgb', 'raw.dng']];
 
   async function runExport() {
     const name = $('exSample').value;
@@ -182,7 +182,7 @@
       if (!st.img) throw new Error(doc.getElementById('errorBox').textContent || 'the app did not load the file');
       const set = (id, v) => { const e = doc.getElementById(id); if (e.type === 'checkbox') e.checked = v; else e.value = v; e.dispatchEvent(new win.Event('input')); };
       set('exposure', 0);
-      for (const [fmt, space, file] of EXPORTS) {
+      for (const [fmt, space, file] of EXPORTS.filter(([fm]) => !(fm === 'dng' && st.img.colors4))) {
         out.textContent = `Exporting ${file}`;
         win.ImageExport.open();
         set('exFormat', fmt); set('exSpace', space); set('exAlgo', 'ahd'); set('exArea', 'active'); set('exRotate', true);
@@ -198,6 +198,8 @@
       const meta = {
         sample: name, wb: win.RawAnalyzer.viewer.wb, black: st.levels.black, white: st.levels.white, active: img.active,
         orient: [3, 6, 8].includes(o) ? o : 1, hasMatrix: !!img.colorMatrix,
+        colors4: !!img.colors4,
+        raw: { width: img.width, height: img.height, cfa: img.cfa, colors4: !!img.colors4, matrix: img.colorMatrix || null },
       };
       out.textContent = 'Checking with tifffile, LittleCMS and LibRaw';
       const r = await api('check-export', { method: 'POST', body: JSON.stringify(meta) });

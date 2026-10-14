@@ -263,6 +263,7 @@
           <option value="png8">PNG 8 bit</option>
           <option value="png16">PNG 16 bit</option>
           <option value="tiff16" selected>TIFF 16 bit (deflate)</option>
+          <option value="dng">DNG (raw data)</option>
         </select>
         <label for="exQuality" id="exQualityLabel">Quality</label>
         <span class="inline" id="exQualityRow"><input type="range" id="exQuality" min="50" max="100" value="92"><output id="exQualityOut">92</output></span>
@@ -310,7 +311,7 @@
         one pixel. From 100% zoom the visible area is demosaiced with the algorithm chosen under <b>Detail &ge;100%</b>
         (AHD by default; PPG and bilinear are faster), computed on several CPU threads.</li>
       <li><b>Export image</b> saves the image with the current white balance and exposure as JPEG, PNG or 16-bit
-        TIFF, in sRGB or Adobe RGB with an embedded ICC profile.</li>
+        TIFF, in sRGB or Adobe RGB with an embedded ICC profile, or the raw data as DNG for other raw converters.</li>
       <li>Supported: Canon CRW (CIFF), CR2, CR3 (lossless and C-RAW), EOS-1D / 1Ds TIF.</li>
     </ul>
     <p class="muted">Decoders ported from dcraw and LibRaw (LGPL 2.1 / CDDL 1.0).</p>
@@ -330,6 +331,8 @@
   <script src="js/raw/demosaic.js"></script>
   <script src="js/app/decoder-host.js"></script>
   <script src="js/app/demosaic-host.js"></script>
+  <script src="js/app/tiffwriter.js"></script>
+  <script src="js/app/dng.js"></script>
   <script src="js/app/export.js"></script>
   <script src="js/app/scan.js"></script>
   <script src="js/app/analysis.js"></script>

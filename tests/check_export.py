@@ -56,6 +56,8 @@ def check(out_dir, meta):
     # colour pipeline against LibRaw: linear sRGB, same white balance and white level
     if not meta.get('hasMatrix'):
         lines.append('SKIP LibRaw colour comparison: no colour matrix for this camera')
+    elif meta.get('colors4'):
+        lines.append('SKIP LibRaw colour comparison: LibRaw scales 4-colour (CMYG) output differently')
     elif meta.get('path'):
         with rawpy.imread(meta['path']) as r:
             # LibRaw's user_sat replaces the white level after black subtraction, so pass
@@ -96,5 +98,45 @@ def check(out_dir, meta):
             ratio = [float(np.median(mine[..., c][m] / sub[..., c][m])) for c in range(3)]
             result(e < 0.004 and all(0.97 < q < 1.03 for q in ratio),
                    f'linear sRGB vs LibRaw AHD: mean |diff| {e:.4f}, channel ratios {", ".join(f"{q:.3f}" for q in ratio)} (offset {dx},{dy})')
+    # DNG: LibRaw must read back the same raw data, levels, white balance and matrix
+    if os.path.exists(f('raw.dng')) and meta.get('path') and not meta.get('colors4'):
+        with rawpy.imread(f('raw.dng')) as d, rawpy.imread(meta['path']) as o:
+            rd, ro = d.raw_image.astype(np.int64), o.raw_image.astype(np.int64)
+            a = meta['active']
+            result(rd.shape == ro.shape and np.array_equal(rd, ro), f'DNG raw data identical to the original ({rd.shape[1]}x{rd.shape[0]})')
+            g = lambda c: np.where(c == 3, 1, c)
+            cd = g(d.raw_colors[a['top']:a['top'] + 2, a['left']:a['left'] + 2])
+            co = g(o.raw_colors[a['top']:a['top'] + 2, a['left']:a['left'] + 2])
+            result(np.array_equal(cd, co), f'DNG CFA pattern at the image area {cd.ravel().tolist()} (original {co.ravel().tolist()})')
+            s = d.sizes
+            # LibRaw moves an image area that starts on an odd row or column by one pixel
+            want = (a['left'], a['top'], a['right'] - a['left'], a['bottom'] - a['top'])
+            got = (s.left_margin, s.top_margin, s.width, s.height)
+            result(all(abs(x - y) <= 1 for x, y in zip(got, want)),
+                   f'DNG image area {s.width}x{s.height} at {s.left_margin},{s.top_margin} (app {want[2]}x{want[3]} at {want[0]},{want[1]})')
+            bl = list(d.black_level_per_channel)
+            result(all(abs(x - y) <= 1 for x, y in zip(sorted(bl), sorted(meta['black']))) and d.white_level == meta['white'],
+                   f'DNG black {bl} (app {meta["black"]}), white {d.white_level} (app {meta["white"]})')
+            wb = np.array(d.camera_whitebalance[:3], float); wb /= wb[1]
+            want = np.array(meta['wb'][:3], float); want /= want[1]
+            result(np.allclose(wb, want, rtol=1e-3), f'DNG as-shot white balance {np.round(wb, 4).tolist()} (app {np.round(want, 4).tolist()})')
+            if meta['raw']['matrix']:
+                # LibRaw keeps DNG matrices internally; the daylight balance it derives from them must match
+                dd = np.array(d.daylight_whitebalance[:3]); do = np.array(o.daylight_whitebalance[:3])
+                result(np.allclose(dd / dd[1], do / do[1], rtol=1e-3), f'DNG colour matrix: daylight balance {np.round(dd / dd[1], 4).tolist()} (original {np.round(do / do[1], 4).tolist()})')
+            kw = dict(demosaic_algorithm=rawpy.DemosaicAlgorithm.AHD, output_color=rawpy.ColorSpace.sRGB, gamma=(1, 1), no_auto_bright=True,
+                      output_bps=16, user_flip=0, adjust_maximum_thr=0.0, highlight_mode=rawpy.HighlightMode.Clip)
+            pd = d.postprocess(use_camera_wb=True, **kw).astype(float)
+            cw = list(d.camera_whitebalance[:3]) + [d.camera_whitebalance[1]]
+        with rawpy.imread(meta['path']) as o:
+            extra = {} if meta['white'] == o.white_level else {'user_sat': int(meta['white'] - min(o.black_level_per_channel))}
+            po = o.postprocess(user_wb=cw, **kw, **extra).astype(float)
+            so = o.sizes
+        dy, dx = s.top_margin - so.top_margin, s.left_margin - so.left_margin
+        h, w = min(pd.shape[0], po.shape[0] - dy), min(pd.shape[1], po.shape[1] - dx)
+        A, B = pd[8:h - 8, 8:w - 8], po[dy + 8:dy + h - 8, dx + 8:dx + w - 8]
+        m = (B.max(axis=2) < 60000) & (B.min(axis=2) > 500)
+        ratio = [float(np.median(A[..., c][m] / B[..., c][m])) for c in range(3)]
+        result(all(0.97 < q < 1.03 for q in ratio), f'DNG develops like the original in LibRaw (sRGB, as-shot WB): channel ratios {", ".join(f"{q:.3f}" for q in ratio)}')
     lines.append(f'{fails} failed' if fails else 'all export checks passed')
     return '\n'.join(lines)

@@ -99,6 +99,13 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   16-bit TIFF (deflate + predictor), in sRGB or Adobe RGB (1998). Files carry an
   ICC profile and Exif (camera, exposure, lens, date) and are rotated as shot.
   A 45 MP EOS R5 frame takes about 4 s with AHD on an 8-thread CPU.
+- **DNG export**: the untouched raw frame as a DNG 1.4 file with the CFA pattern,
+  per-channel black levels, white level, image area, masked areas, the camera colour
+  matrix (D65), the current white balance as shot, Exif and a small preview. Opens in
+  Lightroom, Camera Raw, darktable, RawTherapee and anything built on LibRaw, which
+  makes old CRW and EOS-1D TIF files usable in software that never supported them.
+  LibRaw reads back identical raw data, levels, white balance and colour (checked in
+  the tests). Not offered for 4-colour CMYG sensors.
 - **Metadata**: summary (camera, lens, exposure, mode, metering, focus, WB, serial,
   owner, firmware, GPS), and every IFD0 / EXIF / GPS / Canon maker note / CIFF /
   CR3 CTMD tag, searchable.
@@ -138,6 +145,8 @@ js/app/*.js           user interface
   scan.js             folder scan (worker pool, table, CSV)
   demosaic-host.js    worker pool: strips with overlap, parallel demosaic/develop
   export.js           export dialog, PNG/TIFF/JPEG writers, ICC profiles, Exif
+  tiffwriter.js       TIFF structure writer (IFD trees, data blocks)
+  dng.js              DNG writer
 ```
 
 The decoders were verified pixel-for-pixel against LibRaw (via `rawpy` 0.27) on
