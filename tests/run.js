@@ -71,12 +71,15 @@
     const levels = { black: res.black, white: res.white };
     const st = Analysis.computeStats(histo, levels, res.noise ? res.noise.sigma : null);
     const r4 = (v) => (typeof v === 'number' && isFinite(v) ? +v.toPrecision(5) : v);
-    const pn = Analysis.patternNoise(res, res.black);
+    const sig = res.noise ? res.noise.sigma : null;
+    const st0 = Analysis.computeStats(Analysis.computeHist(res, { x0: A.left, y0: A.top, x1: A.right, y1: A.bottom }), { black: res.black, white: res.white }, sig);
+    const dark = !!sig && [0, 1, 2, 3].every((i) => st0[i] && st0[i].p99 - res.black[i] < 20 * sig[i]);
+    const pn = Analysis.patternNoise(res, res.black, dark);
     const lines = (o) => o && o.ch.map((c) => c && { line: r4(c.line), detected: c.detected });
     const df = Analysis.defectPixels(res, levels, res.noise ? res.noise.sigma : null);
     return {
       defects: df.counts,
-      pattern: pn && { random: pn.random.map(r4), rows: lines(pn.rows), cols: lines(pn.cols), rowStrip: pn.rowStrip, colStrip: pn.colStrip, rejected: pn.rejected },
+      pattern: pn && { random: pn.random.map(r4), mode: pn.mode, rows: lines(pn.rows), cols: lines(pn.cols), border: lines(pn.border), side: pn.borderSide, rejected: pn.rejected },
       format: res.format, size: [res.width, res.height], bits: res.bits, active: A, cfa: res.cfa, colors4: !!res.colors4,
       black: res.black, blackSource: res.blackSource, white: res.white, whiteSource: res.whiteSource,
       colorEntry: res.colorEntry ? res.colorEntry.prefix : null, wbAsShot: res.wbAsShot && res.wbAsShot.map(r4),

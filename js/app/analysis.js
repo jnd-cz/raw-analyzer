@@ -173,27 +173,59 @@
     const res = { pts, patches: means.length, sat, ok: false };
     if (fit.length < 4) { res.reason = 'not enough flat, unclipped areas over a wide enough range of brightness'; return res; }
     res.spanEV = Math.log2(fit[fit.length - 1].S / fit[0].S);
-    let r2, invG;
-    if (sigma) {
-      const r = sigma.reduce((a, b) => a + b, 0) / 4;
-      r2 = r * r;
-      let num = 0, den = 0;
-      for (const p of fit) { const w = 1 / (p.V * p.V); num += w * p.S * (p.V - r2); den += w * p.S * p.S; }
-      invG = num / den;
-      res.readSource = 'masked border';
-    } else {
-      // weighted least squares for [r2, invG]
-      let a11 = 0, a12 = 0, a22 = 0, b1 = 0, b2 = 0;
-      for (const p of fit) {
-        const w = 1 / (p.V * p.V);
-        a11 += w; a12 += w * p.S; a22 += w * p.S * p.S; b1 += w * p.V; b2 += w * p.S * p.V;
+    // weighted least squares; the S² term takes up pixel response non-uniformity
+    // and scene texture, which both grow with the signal squared (without it the
+    // gain read 37% low on a 5D Mark II ISO 100 scene, checked against flat fields)
+    const solve = (A, y) => { // small dense system, Gaussian elimination
+      const n = y.length;
+      for (let i = 0; i < n; i++) {
+        let piv = i;
+        for (let k = i + 1; k < n; k++) if (Math.abs(A[k][i]) > Math.abs(A[piv][i])) piv = k;
+        [A[i], A[piv]] = [A[piv], A[i]]; [y[i], y[piv]] = [y[piv], y[i]];
+        for (let k = i + 1; k < n; k++) { const f = A[k][i] / A[i][i]; for (let j = i; j < n; j++) A[k][j] -= f * A[i][j]; y[k] -= f * y[i]; }
       }
-      const det = a11 * a22 - a12 * a12;
-      r2 = (b1 * a22 - b2 * a12) / det;
-      invG = (a11 * b2 - a12 * b1) / det;
+      const x = new Array(n).fill(0);
+      for (let i = n - 1; i >= 0; i--) { let s = y[i]; for (let j = i + 1; j < n; j++) s -= A[i][j] * x[j]; x[i] = s / A[i][i]; }
+      return x;
+    };
+    // fit V' = sum(coef * basis) with weights 1/V²; returns coefficients
+    const lsq = (basis, target) => {
+      const m = basis.length, A = basis.map(() => new Array(m).fill(0)), y = new Array(m).fill(0);
+      for (const p of fit) {
+        const w = 1 / (p.V * p.V), f = basis.map((b) => b(p.S)), t = target(p);
+        for (let i = 0; i < m; i++) { y[i] += w * f[i] * t; for (let j = 0; j < m; j++) A[i][j] += w * f[i] * f[j]; }
+      }
+      return solve(A, y);
+    };
+    // the noise floor is fitted too: the image area can be noisier than the masked
+    // border (5D Mark II: 6.1 vs 5.5 DN), and pinning it to the border value turned
+    // that extra noise into shot noise (gain 30% low on a dark flat field). The
+    // border value stays a lower bound and the fallback when there are too few dark
+    // patches to fit the floor.
+    let r2, invG, quad;
+    const free = () => {
+      let x = lsq([() => 1, (S) => S, (S) => S * S], (p) => p.V);
+      if (!(x[2] > 0)) { x = lsq([() => 1, (S) => S], (p) => p.V); x[2] = 0; }
+      return x;
+    };
+    const fixed = (rr) => {
+      let x = lsq([(S) => S, (S) => S * S], (p) => p.V - rr);
+      if (!(x[1] > 0)) { x = lsq([(S) => S], (p) => p.V - rr); x[1] = 0; }
+      return [rr, x[0], x[1]];
+    };
+    const border = sigma ? (sigma.reduce((a, b) => a + b, 0) / 4) ** 2 : null;
+    const hasDark = border !== null ? fit.some((p) => p.S < 8 * border) : true;
+    [r2, invG, quad] = free();
+    if (border !== null && (!hasDark || !(r2 >= 0.9 * border) || !(invG > 0))) {
+      [r2, invG, quad] = fixed(border);
+      res.readSource = 'masked border';
+    } else if (border !== null) {
+      res.readSource = r2 > 1.1 * border ? `fit to this image (the masked border reads ${Math.sqrt(border).toFixed(2)} DN)` : 'fit to this image, matches the masked border';
+    } else {
       if (!(r2 > 0.01)) r2 = 0.01;
       res.readSource = 'fit (no masked border)';
     }
+    res.prnu = Math.sqrt(quad); // pixel non-uniformity plus residual texture, as a fraction of the signal
     if (!(invG > 0) || !isFinite(invG)) { res.reason = 'the noise does not grow with signal in this image (too much texture or too few flat areas)'; return res; }
     const g = 1 / invG, r = Math.sqrt(r2);
     const snrLevel = (k) => (k * k / g + Math.sqrt(k ** 4 / (g * g) + 4 * k * k * r2)) / 2;
@@ -202,98 +234,144 @@
       ok: true, gain: g, readDN: r, readE: r * g, fwc: sat * g, edr: Math.log2(sat / r),
       ev: { 1: Math.log2(sat / snrLevel(1)), 4: Math.log2(sat / snrLevel(4)), 10: Math.log2(sat / snrLevel(10)), 20: Math.log2(sat / snrLevel(20)) },
       push: [0, 1, 2, 3, 4, 5].map((n) => [snrAt(-3 - n), snrAt(-6 - n)]),
-      model: (s) => Math.sqrt(r2 + s / g),
-      confidence: res.spanEV >= 5 && fit.length >= 12 ? 'good' : res.spanEV >= 3 ? 'fair' : 'low',
+      model: (s) => Math.sqrt(r2 + s / g + quad * s * s),
+      // shot noise must carry the fit: at the brightest fitted level it should be at least half the variance
+      confidence: (() => { const sm = fit[fit.length - 1].S, shot = sm / g / (r2 + sm / g + quad * sm * sm);
+        return shot < 0.5 ? 'low' : res.spanEV >= 5 && fit.length >= 12 ? 'good' : res.spanEV >= 3 ? 'fair' : 'low'; })(),
     });
     return res;
   }
 
   /**
-   * Pattern (banding) noise from the masked border, per CFA channel.
-   * Row noise comes from a vertical strip (left or right border): the mean of each
-   * row across the strip. Column noise comes from a horizontal strip (top or
-   * bottom): the mean of each column down the strip. Each line mean carries the
-   * line offset plus random noise / sqrt(samples), so
+   * Pattern (banding) noise, per CFA channel: offsets shared by a whole row
+   * (horizontal banding) or a whole column (vertical banding).
+   * Each line mean carries the line offset plus random noise / sqrt(samples), so
    *   var(m[k+1] - m[k]) / 2 = σ_line² + σ_random² / n
    * over neighbouring same-colour lines (the differences also remove slow gradients
-   * such as amp glow). Outlying differences and hot pixels are left out. A strip
-   * whose level differs from the black level is a separately read area (the 50D's
-   * top border sits 35 DN low, with its own column pattern) and is not used.
+   * such as amp glow). Outlying differences and hot pixels are left out.
+   *
+   * On a dark frame (dark = true) rows and columns are measured over the whole
+   * image area: the definitive numbers. Otherwise only row noise can be measured,
+   * across the left (or right) masked border, and it is a lower bound: on the
+   * 5D Mark II the border shows about a third of the image-area row noise. Top and
+   * bottom borders are not used: on the 5D Mark II and 50D they are read
+   * differently (other levels, odd rows, column patterns unrelated to the image).
    */
-  function patternNoise(img, black) {
+  function patternNoise(img, black, dark) {
+    const { raw, width: W, cfa, active: A } = img;
     const M = img.masked;
-    if (!M || !M.rects) return null;
-    const { raw, width: W, cfa } = img;
     const med = (a) => { const s = Float64Array.from(a).sort(); const n = s.length; return n ? (n & 1 ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2) : NaN; };
+    const newAcc = () => [0, 1, 2, 3].map(() => ({ means: [], within: 0, wn: 0, samples: 0, sum: 0 }));
+    const add = (e, s, s2, n) => {
+      if (n < 2) return;
+      const m = s / n;
+      e.means.push(m); e.sum += s; e.within += s2 - n * m * m; e.wn += n - 1; e.samples += n;
+    };
 
-    function lines(rect, isRow) {
-      const a0 = isRow ? rect.y0 : rect.x0, a1 = isRow ? rect.y1 : rect.x1;
-      const b0 = isRow ? rect.x0 : rect.y0, b1 = isRow ? rect.x1 : rect.y1;
-      const per = [0, 1, 2, 3].map(() => ({ means: [], pos: [], within: 0, wn: 0, samples: 0 }));
-      for (let i = a0; i < a1; i++) {
-        for (let p = 0; p < 2; p++) {
-          const c = isRow ? cfa[(i & 1) * 2 + p] : cfa[p * 2 + (i & 1)];
-          const ch = M.ch[c];
-          if (!ch) continue;
-          const lo = ch.mean - 6 * ch.sd - 2, hi = ch.mean + 6 * ch.sd + 2;
-          let s = 0, s2 = 0, n = 0;
-          for (let j = b0 + ((b0 & 1) !== p ? 1 : 0); j < b1; j += 2) {
-            const v = isRow ? raw[i * W + j] : raw[j * W + i];
-            if (v < lo || v > hi) continue; // hot or dead pixel
-            s += v; s2 += v * v; n++;
-          }
-          if (n < 2) continue;
-          const m = s / n, e = per[c];
-          e.means.push(m); e.pos.push(i); e.sum = (e.sum || 0) + s;
-          e.within += s2 - n * m * m; e.wn += n - 1; e.samples += n;
-        }
-      }
-      const res = per.map((e) => {
-        if (e.means.length < 8 || !e.wn) return null;
-        const random = Math.sqrt(e.within / e.wn);
-        const n = e.samples / e.means.length;
-        const d = [];
-        for (let k = 1; k < e.means.length; k++) d.push(e.means[k] - e.means[k - 1]);
-        // variance of the differences, with outliers beyond 5 robust sigmas removed
-        const md = med(d);
-        const mad = 1.4826 * med(d.map((x) => Math.abs(x - md))) || 1e-9;
-        let s2 = 0, k2 = 0;
-        for (const x of d) if (Math.abs(x - md) <= 5 * mad) { s2 += (x - md) * (x - md); k2++; }
-        const total = s2 / Math.max(1, k2 - 1) / 2;          // σ_line² + σ_random² / n
-        const line2 = total - (random * random) / n;
-        // standard error of that variance: below three of them the banding counts as not detected
-        const se = total * Math.sqrt(2 / Math.max(1, k2 - 1));
-        return {
-          level: e.sum / e.samples,
-          random, line: Math.sqrt(Math.max(0, line2)), detected: line2 > 3 * se, limit: Math.sqrt(Math.max(0, line2) + 2 * se),
-          lines: e.means.length, perLine: n,
-        };
-      });
-      return { rect, ch: res, length: a1 - a0, width: b1 - b0 };
+    function lineStats(e) {
+      if (e.means.length < 8 || !e.wn) return null;
+      const random = Math.sqrt(e.within / e.wn);
+      const n = e.samples / e.means.length;
+      const d = [];
+      for (let k = 1; k < e.means.length; k++) d.push(e.means[k] - e.means[k - 1]);
+      // variance of the differences, with outliers beyond 5 robust sigmas removed
+      const md = med(d);
+      const mad = 1.4826 * med(d.map((x) => Math.abs(x - md))) || 1e-9;
+      let s2 = 0, k2 = 0;
+      for (const x of d) if (Math.abs(x - md) <= 5 * mad) { s2 += (x - md) * (x - md); k2++; }
+      const total = s2 / Math.max(1, k2 - 1) / 2;          // σ_line² + σ_random² / n
+      const line2 = total - (random * random) / n;
+      // standard error of that variance: below three of them the banding counts as not detected
+      const se = total * Math.sqrt(2 / Math.max(1, k2 - 1));
+      return {
+        level: e.sum / e.samples,
+        random, line: Math.sqrt(Math.max(0, line2)), detected: line2 > 3 * se, limit: Math.sqrt(Math.max(0, line2) + 2 * se),
+        lines: e.means.length, perLine: n,
+      };
     }
 
-    const rejected = [];
-    // first usable strip of each orientation: its level must match the black level
-    const pick = (names, isRow) => {
-      for (const k of names) {
-        const r = M.rects[k];
-        if (!r) continue;
-        const L = lines(r, isRow);
-        const off = L.ch.map((c, i) => (c && black ? c.level - black[i] : 0));
-        const bad = L.ch.some((c, i) => c && Math.abs(off[i]) > Math.max(3, 0.5 * c.random));
-        if (!bad) return Object.assign(L, { side: k });
-        const worst = off.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
-        rejected.push(`${k} border (${worst > 0 ? '+' : ''}${worst.toFixed(0)} DN from black, read separately)`);
+    // per-channel acceptance window: hot and dead pixels stay out of the line means
+    const windowOf = (ref) => [0, 1, 2, 3].map((c) => (ref[c] ? [ref[c].mean - 6 * ref[c].sd - 2, ref[c].mean + 6 * ref[c].sd + 2] : null));
+
+    /** Row means across a vertical border strip. */
+    function borderRows(rect) {
+      const win = windowOf(M.ch);
+      const acc = newAcc();
+      for (let y = rect.y0; y < rect.y1; y++) {
+        for (let p = 0; p < 2; p++) {
+          const c = cfa[(y & 1) * 2 + p], w = win[c];
+          if (!w) continue;
+          let s = 0, s2 = 0, n = 0;
+          for (let x = rect.x0 + ((rect.x0 & 1) !== p ? 1 : 0); x < rect.x1; x += 2) {
+            const v = raw[y * W + x];
+            if (v < w[0] || v > w[1]) continue;
+            s += v; s2 += v * v; n++;
+          }
+          add(acc[c], s, s2, n);
+        }
       }
-      return null;
-    };
-    const rows = pick(['left', 'right'], true), cols = pick(['top', 'bottom'], false);
-    const out = { rows, cols, rowStrip: rows && rows.side, colStrip: cols && cols.side, rejected };
-    // random noise: from the strip with more samples per channel
-    out.random = [0, 1, 2, 3].map((c) => {
-      const a = out.rows && out.rows.ch[c], b = out.cols && out.cols.ch[c];
-      return a && b ? (a.lines * a.perLine >= b.lines * b.perLine ? a.random : b.random) : (a || b) ? (a || b).random : null;
-    });
+      return { ch: acc.map(lineStats), length: rect.y1 - rect.y0, width: rect.x1 - rect.x0 };
+    }
+
+    /** Rows and columns over the whole image area (dark frames), one row-major pass. */
+    function imageLines() {
+      // reference level and spread per channel from a sparse sample
+      const smp = [[], [], [], []];
+      for (let y = A.top; y < A.bottom; y += 7) for (let x = A.left; x < A.right; x += 13) smp[cfa[(y & 1) * 2 + (x & 1)]].push(raw[y * W + x]);
+      const ref = smp.map((a) => { if (!a.length) return null; const m = med(a); return { mean: m, sd: 1.4826 * med(a.map((v) => Math.abs(v - m))) || 1 }; });
+      const win = windowOf(ref);
+      const cS = new Float64Array(2 * W), cQ = new Float64Array(2 * W), cN = new Uint32Array(2 * W);
+      const rows = newAcc();
+      for (let y = A.top; y < A.bottom; y++) {
+        const q = y & 1, o = y * W, co = q * W;
+        for (let p = 0; p < 2; p++) {
+          const c = cfa[q * 2 + p], w = win[c];
+          if (!w) continue;
+          let s = 0, s2 = 0, n = 0;
+          for (let x = A.left + ((A.left & 1) !== p ? 1 : 0); x < A.right; x += 2) {
+            const v = raw[o + x];
+            if (v < w[0] || v > w[1]) continue;
+            s += v; s2 += v * v; n++;
+            cS[co + x] += v; cQ[co + x] += v * v; cN[co + x]++;
+          }
+          add(rows[c], s, s2, n);
+        }
+      }
+      const cols = newAcc();
+      for (let x = A.left; x < A.right; x++) {
+        for (let q = 0; q < 2; q++) {
+          const c = cfa[q * 2 + (x & 1)], k = q * W + x;
+          add(cols[c], cS[k], cQ[k], cN[k]);
+        }
+      }
+      return {
+        rows: { ch: rows.map(lineStats), length: A.bottom - A.top, width: A.right - A.left },
+        cols: { ch: cols.map(lineStats), length: A.right - A.left, width: A.bottom - A.top },
+      };
+    }
+
+    // border rows: the first vertical strip whose level matches the black level
+    const rejected = [];
+    let border = null, side = null;
+    for (const k of ['left', 'right']) {
+      const r = M && M.rects && M.rects[k];
+      if (!r) continue;
+      const L = borderRows(r);
+      const off = L.ch.map((c, i) => (c && black ? c.level - black[i] : 0));
+      if (!L.ch.some((c, i) => c && Math.abs(off[i]) > Math.max(3, 0.5 * c.random))) { border = L; side = k; break; }
+      const worst = off.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
+      rejected.push(`${k} border (${worst > 0 ? '+' : ''}${worst.toFixed(0)} DN from black, read separately)`);
+    }
+    const out = { mode: dark ? 'image' : 'border', border, borderSide: side, rejected };
+    if (dark) {
+      const im = imageLines();
+      out.rows = im.rows; out.cols = im.cols;
+      // within a row the column pattern adds to the spread and vice versa: the smaller is closer to random noise
+      out.random = [0, 1, 2, 3].map((c) => { const a = im.rows.ch[c], b = im.cols.ch[c]; return a && b ? Math.min(a.random, b.random) : a ? a.random : b ? b.random : null; });
+    } else {
+      out.rows = border; out.cols = null;
+      out.random = [0, 1, 2, 3].map((c) => (border && border.ch[c] ? border.ch[c].random : null));
+    }
     return out.rows || out.cols ? out : null;
   }
 
@@ -301,7 +379,9 @@
    * Hot, stuck and dead pixels in the image area. A pixel is compared with its 8
    * nearest same-colour neighbours (2 px away), which must agree among themselves,
    * and flagged when it differs from all of them by more than
-   *   T = max(8 σ_read, 3 × neighbour range) + 0.2 × (neighbour level above black)
+   *   T = max(20 σ_read, 3 × neighbour range) + 0.2 × (neighbour level above black)
+   * 20 σ, not less: CMOS read noise has heavy tails (popping pixels). On 5D Mark II
+   * dark frames only 6% of 8 σ detections came back in a second frame, 96% of 24 σ ones.
    * The second term keeps photon noise and fine detail in bright areas from
    * counting: real detail is spread over several pixels by the lens and the AA
    * filter, a defect is not.
@@ -322,7 +402,7 @@
       const o = y * W, up = o - 2 * W, dn = o + 2 * W;
       for (let x = A.left + 2; x < A.right - 2; x++) {
         const v = raw[o + x], l = raw[o + x - 2], r = raw[o + x + 2];
-        const c = cfa[(y & 1) * 2 + (x & 1)], s8 = 8 * sig[c];
+        const c = cfa[(y & 1) * 2 + (x & 1)], s8 = 20 * sig[c];
         const hiLR = l > r ? l : r, loLR = l < r ? l : r;
         if (v <= hiLR + s8 && v >= loLR - s8) continue; // the full test cannot pass
         let mx = hiLR, mn = loLR;
@@ -335,7 +415,7 @@
         // the neighbours must agree among themselves: a defect sits in a smooth
         // area, fine scene detail (specular points, edges) does not
         const spread = mx - mn;
-        if (spread > s8 + 0.15 * Math.max(0, mn - b)) continue;
+        if (spread > 8 * sig[c] + 0.15 * Math.max(0, mn - b)) continue;
         // local noise: the range of 8 samples is about 3 σ, so 3 × range ~ 8-9 σ
         // (covers photon noise, which read noise alone does not)
         const t0 = Math.max(s8, 3 * spread);

@@ -370,9 +370,11 @@
       `<p>The table shows the per-pixel signal-to-noise ratio when a scene is exposed darker by the given amount and brightened back in post. ` +
       `Shadows stay above SNR 4 (grainy but usable) up to about <b>+${maxPush(4)} EV</b> of push, and above SNR 10 (clean) up to <b>+${maxPush(10)} EV</b>.</p>` +
       '<p class="muted">Dots: measured noise per ¼ EV signal bin (10th percentile of 8×8 same-colour patches, so texture is mostly ignored). ' +
-      'Hollow dots are outside the fit range. Line: fitted model noise² = read² + signal / gain. Random noise only: banding and other pattern noise are not included.</p>' +
-      '<p class="muted">Accuracy: tested on 23 D30, D60, 10D and EOS-1D frames against a 40-frame average, most single images land within ±25% of the gain, ' +
-      'a few within ±45%, and one frame in 23 was off by 2×. Treat one image as a rough figure and compare a few. ' +
+      'Hollow dots are outside the fit range. Line: fitted model noise² = floor² + signal / gain + (k · signal)², where the last term takes up pixel ' +
+      'response non-uniformity and leftover texture. Random noise only: banding is in the Pattern noise section.</p>' +
+      '<p class="muted">Accuracy: against flat-field measurements of a 5D Mark II, single frames landed within 3–9% of the gain at ISO 1600 and on a ' +
+      'shadow-heavy ISO 100 scene, and 24% low on a busy ISO 100 scene (texture still reads as noise). Older tests on D30, D60, 10D and EOS-1D frames ' +
+      'gave ±25% for most images. Treat one image as a rough figure and compare a few. ' +
       'The dynamic range and push figures move far less (a few tenths of an EV), because they depend mostly on the read noise. ' +
       'Gain scales with ISO, so compare frames by the ISO 100 figure; high ISO frames are often the most reliable, as noise swamps texture.</p>';
   }
@@ -509,8 +511,15 @@
   }
 
   // ---------------------------------------------------------- pattern noise
+  /** Dark frame (lens cap on): every channel within 20 read-noise sigmas of black at the 99th percentile. */
+  function isDarkFrame() {
+    if (!state.sigma) return false;
+    const st = Analysis.computeStats(histFor('active'), state.levels, state.sigma);
+    return [0, 1, 2, 3].every((i) => st[i] && st[i].p99 - state.levels.black[i] < 20 * state.sigma[i]);
+  }
+
   function updatePattern() {
-    state.pattern = Analysis.patternNoise(state.img, state.levels.black);
+    state.pattern = Analysis.patternNoise(state.img, state.levels.black, isDarkFrame());
     renderPattern();
   }
 
@@ -543,13 +552,20 @@
     $('patternStats').innerHTML = html + '</tbody>';
 
     const notes = [];
-    const src = [];
-    if (p.rows) src.push(`rows from the ${p.rowStrip} border (${p.rows.width} × ${p.rows.length} px)`);
-    if (p.cols) src.push(`columns from the ${p.colStrip} border (${p.cols.length} × ${p.cols.width} px)`);
-    notes.push(`<p>Measured on ${src.join(' and ')}. ` +
-      (!p.cols ? 'There is no usable masked strip along the top or bottom, so vertical banding cannot be measured. ' : '') +
-      (!p.rows ? 'There is no usable masked strip along the left or right, so horizontal banding cannot be measured. ' : '') +
-      (p.rejected.length ? 'Not used: ' + p.rejected.join(', ') + '. ' : '') + '</p>');
+    const avgPct = (o) => { const v = ch.map((i) => (o && o.ch[i] && p.random[i] ? o.ch[i].line / p.random[i] : null)).filter((x) => x !== null); return v.length ? v.reduce((a, b) => a + b) / v.length : null; };
+    if (p.mode === 'image') {
+      $('patternSource').textContent = '(banding, whole image area of this dark frame)';
+      const im = avgPct(p.rows), bd = avgPct(p.border);
+      notes.push(`<p>This is a <b>dark frame</b>, so rows and columns are measured over the whole image area (${p.rows.width} × ${p.rows.length} px): the definitive numbers for this ISO and exposure time.` +
+        (bd !== null && im ? ` The ${p.borderSide} masked border alone shows ${Math.round(bd * 100)}% row noise` + (im > bd * 1.5 ? `, ${(im / Math.max(bd, 1e-6)).toFixed(1)}× less than the image area, so border-only figures on normal photos understate it.` : ', in line with the image area.') : '') + '</p>');
+    } else {
+      $('patternSource').textContent = '(banding, masked border only)';
+      notes.push(p.rows
+        ? `<p>Row noise is measured across the ${p.borderSide} masked border (${p.rows.width} × ${p.rows.length} px). Treat it as a <b>lower bound</b>: ` +
+          'the image area can band more than the border (on the 5D Mark II about 3× more). Column noise and the true figures need a <b>dark frame</b> ' +
+          'at the same ISO: lens cap and eyepiece cover on, which this tab then measures over the whole sensor.' + (p.rejected.length ? ' Not used: ' + p.rejected.join(', ') + '.' : '') + '</p>'
+        : '<p>No usable masked strip along the left or right. Take a dark frame (lens cap on) to measure banding over the image area.</p>');
+    }
     const det = (o, i) => (o && o.ch[i] && o.ch[i].detected ? ratio(o.ch[i], i) : 0);
     const worstRow = Math.max(0, ...ch.map((i) => det(p.rows, i))), worstCol = Math.max(0, ...ch.map((i) => det(p.cols, i)));
     const worst = Math.max(worstRow, worstCol);
@@ -560,6 +576,7 @@
     else if (worst < 0.1) verdict = `<b>Faint ${dir} pattern</b> (${pct}% of the random noise): visible at most in flat, strongly pushed shadows.`;
     else if (worst < 0.25) verdict = `<b>Moderate ${dir} banding</b> (${pct}% of the random noise): expect stripes in flat areas when shadows are pushed several EV.`;
     else verdict = `<b>Strong ${dir} banding</b> (${pct}% of the random noise): stripes show in lifted shadows and limit how far they can be pushed.`;
+    if (p.mode !== 'image') verdict = '<i>In the masked border:</i> ' + verdict.replace('No banding detected.', 'No banding detected there.');
     notes.push('<p>' + verdict + '</p>');
     notes.push('<p class="muted">The eye picks up a stripe across the whole frame at roughly a tenth of the random noise, because it averages along the line. ' +
       'Noise reduction and downsizing remove random noise but leave banding, so banding often sets the real limit for shadow lifting. ' +
@@ -622,7 +639,7 @@
     else notes.push('<p>In a normal photo only defects in smooth areas can be told apart from the scene, so these counts are a lower bound. ' +
       'For a sensor check take a <b>dark frame</b>: lens cap and eyepiece cover on, the exposure time and ISO you want to test, long-exposure noise reduction off.</p>');
     notes.push('<p class="muted">A pixel is flagged when its 8 nearest same-colour neighbours agree with each other and it differs from all of them by more than ' +
-      'max(8 σ read noise, 3 × their range) + 20% of their level. Dead pixels are only detectable in lit areas. Click a row to zoom in.</p>');
+      'max(20 σ read noise, 3 × their range) + 20% of their level (lower thresholds catch popping noise that does not repeat between frames). Dead pixels are only detectable in lit areas. Click a row to zoom in.</p>');
     $('defectNotes').innerHTML = notes.join('');
   }
 
@@ -725,6 +742,7 @@
         ['Camera', (p) => f(p).model || '–', esc],
         ['Lens', (p) => sum(p, 'Lens'), esc],
         ['Exposure', (p) => [f(p).exposureTime ? RL.fmtShutter(f(p).exposureTime) : '', f(p).fnumber ? 'f/' + RL.fmtNum(f(p).fnumber, 1) : '', f(p).iso ? 'ISO ' + f(p).iso : ''].filter(Boolean).join(', ') || '–', esc],
+        ['Analog ISO', (p) => { const iso = f(p).iso; if (!iso) return '–'; const g = p.img.digitalGain || 1; return g > 1 ? `${Math.round(iso / g)} (×${g} digital push to ${iso})` : `${iso} (no digital push found)`; }, esc],
         ['Scene', (p) => (p.img.scene && p.img.scene.measured !== null ? `LV ${p.img.scene.measured.toFixed(1)}` : '–'), esc],
         ['Image area', (p) => `${p.img.active.right - p.img.active.left} × ${p.img.active.bottom - p.img.active.top}, ${p.img.bits} bit`, esc],
       ]],
@@ -921,6 +939,7 @@
       ['Data maximum', img.maxValue + ' (' + img.maxCount.toLocaleString("en-US") + ' px)'],
       ['As shot WB', wb],
       ['Colour matrix', img.colorEntry ? 'Canon ' + img.colorEntry.prefix + ' (LibRaw table)' : 'not available (preview uses raw colours)'],
+      ...(img.digitalGain > 1 ? [['Digital gain', `×${img.digitalGain}: only every ${img.digitalGain === 2 ? '2nd' : img.digitalGain === 4 ? '4th' : img.digitalGain + 'th'} raw value occurs, so this ISO is a lower analog ISO multiplied in software. Same noise as brightening that ISO in post, with ${Math.log2(img.digitalGain)} EV less highlight headroom`]] : []),
       ['Shutter count', img.shutterCount ? (img.shutterCount.value ? img.shutterCount.value.toLocaleString('en-US') + (img.shutterCount.note ? ' (' + img.shutterCount.note + ')' : '') : 'not available: ' + img.shutterCount.note)
         : 'not recorded by this camera in raw files'],
       ...(img.scene ? [['Scene brightness', img.scene.text + (img.scene.source ? ' [' + img.scene.source + ']' : '')]] : []),

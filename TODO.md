@@ -9,10 +9,9 @@
 ## Analysis features
 - [x] Banding and pattern noise: row and column noise from the masked border, separated
       from random read noise, with a visibility verdict (Statistics tab)
-- [ ] Banding from dark image areas too, for bodies without a usable masked strip in one
-      direction (needs real dark frames to validate)
+- [x] Banding over the image area of dark frames (validated on 5D Mark II dark frames)
 - [x] Hot and stuck pixel map for dark frames and long exposures: list, count per channel,
-      viewer overlay, CSV export (validate thresholds on real dark frames)
+      viewer overlay, CSV export
 - [x] Compare two files side by side: statistics, histograms, noise and PTC estimates
 - [x] Folder scan: table of date, lens, settings, shutter count, scene brightness and clipping
       for every raw file in a folder (folder picker input, works from file:// too)

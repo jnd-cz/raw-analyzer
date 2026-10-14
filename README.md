@@ -43,23 +43,30 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   estimated from flat dark image areas when there is no border), noise floor in EV,
   engineering dynamic range, share of pixels below 1, 2, 4 and 10 sigma, shadow SNR,
   a noise-floor marker in the histogram, and a viewer overlay for near-floor areas.
-- **Pattern noise (banding)**: row and column noise from the masked border,
-  separated from random noise (differences of neighbouring lines, so gradients
-  such as amp glow do not count), per channel and relative to the random noise,
-  with a verdict on visible banding. Weak banding is reported as an upper limit
-  when the strip is too small to detect it, and border strips read at a different
-  level than the black level (the 50D's top border) are left out.
+- **Pattern noise (banding)**: row and column noise per channel, separated from
+  random noise (differences of neighbouring lines, so gradients such as amp glow do
+  not count), relative to the random noise, with a verdict on visible banding. On a
+  dark frame (lens cap on) it is measured over the whole image area. On normal photos
+  only row noise can be measured, across the left masked border, and it is a lower
+  bound: on the 5D Mark II the border shows about a third of the image-area row
+  noise. Top borders are not used (on the 5D Mark II and 50D they are read
+  differently from the image).
 - **Hot, stuck and dead pixels** in the image area: a pixel is flagged when its 8
   nearest same-colour neighbours agree with each other and it differs from all of
   them by more than the local noise allows. Counts per channel, the strongest
   defects (click to zoom in), an overlay on the image and CSV export. On a dark frame
   the counts describe the sensor; in a normal photo they are a lower bound.
 - **Sensor estimate (photon transfer)** from a single image: noise versus signal
-  measured on flat 8×8 same-colour patches, fitted to noise² = read² + signal/gain.
+  measured on flat 8×8 same-colour patches, fitted to noise² = floor² + signal/gain
+  + (k·signal)² (the last term takes up pixel non-uniformity and texture).
   Shows gain (e⁻/DN, also scaled to ISO 100), read noise in electrons, full-well
   capacity, the range down to SNR 1 / 4 / 10 / 20, and a shadow-push table (SNR of
-  mid-tones and shadows after pushing 1–5 EV). One frame typically lands within
-  ±25% of a multi-frame average; busy scenes read low.
+  mid-tones and shadows after pushing 1–5 EV). Checked against flat fields of a
+  5D Mark II: within 3–9% on most frames, 24% low on a busy ISO 100 scene.
+- **Digital ISO detection**: when only every 2nd, 4th or 8th raw value occurs, the
+  ISO is a lower analog ISO multiplied in software (the 5D Mark II's ISO 6400,
+  12800 and 25600 are ISO 3200 × 2, 4 and 8). Shown with the ISO, in the File tab
+  and in Compare.
 - **Compare two files**: *Compare with…* opens a second raw file next to the
   current one. The Compare tab lists both side by side (exposure, scene brightness,
   read noise, gain, full well, dynamic range, banding, defects, with differences in
