@@ -1137,6 +1137,39 @@
     else if (e.key === 'Escape') clearSelection();
   });
 
+  // ---------------------------------------------------------- remembered settings
+  // viewer and histogram options persist between sessions (per browser); the page
+  // works the same when storage is unavailable
+  const PREFS_KEY = 'rawAnalyzer.settings';
+  const PREF_IDS = ['demosaic', 'viewMode', 'underK', 'showUnder', 'showClip', 'histX', 'histY', 'histBin', 'histLayout', 'histSubBlack'];
+  function savePrefs() {
+    try {
+      const v = {};
+      for (const id of PREF_IDS) { const e = $(id); v[id] = e.type === 'checkbox' ? e.checked : e.value; }
+      const tab = document.querySelector('.tab.active');
+      v.tab = tab ? tab.dataset.tab : 'hist';
+      localStorage.setItem(PREFS_KEY, JSON.stringify(v));
+    } catch (e) { /* storage unavailable */ }
+  }
+  (function loadPrefs() {
+    let v = null;
+    try { v = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null'); } catch (e) { /* storage unavailable */ }
+    if (v) {
+      // underK before showUnder: changing the threshold switches the overlay on
+      for (const id of PREF_IDS) {
+        const e = $(id);
+        if (v[id] === undefined || !e) continue;
+        if (e.type === 'checkbox') e.checked = !!v[id];
+        else if ([...e.options].some((o) => o.value === String(v[id]))) e.value = v[id];
+        else continue;
+        e.dispatchEvent(new Event('change'));
+      }
+      if (v.tab && v.tab !== 'compare') { const t = document.querySelector(`.tab[data-tab="${v.tab}"]`); if (t) t.click(); }
+    }
+    for (const id of PREF_IDS) $(id).addEventListener('change', savePrefs);
+    document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', savePrefs));
+  })();
+
   renderLegend();
-  window.RawAnalyzer = { openFile, compareWith, state, viewer, loadImage };
+  window.RawAnalyzer ={ openFile, compareWith, state, viewer, loadImage };
 })();

@@ -118,6 +118,9 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   on EOS bodies that record it.
 - **Embedded images**: full-size preview JPEGs and thumbnails, viewable and saveable.
 
+Viewer and histogram options, the open side-panel tab and the export settings are
+remembered in the browser between sessions.
+
 ## Keyboard and mouse
 
 Wheel zooms at the cursor; `+` / `-` zoom; `0` toggles fit / 100 %; double-click fits;
