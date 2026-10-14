@@ -73,7 +73,9 @@
     const r4 = (v) => (typeof v === 'number' && isFinite(v) ? +v.toPrecision(5) : v);
     const pn = Analysis.patternNoise(res, res.black);
     const lines = (o) => o && o.ch.map((c) => c && { line: r4(c.line), detected: c.detected });
+    const df = Analysis.defectPixels(res, levels, res.noise ? res.noise.sigma : null);
     return {
+      defects: df.counts,
       pattern: pn && { random: pn.random.map(r4), rows: lines(pn.rows), cols: lines(pn.cols), rowStrip: pn.rowStrip, colStrip: pn.colStrip, rejected: pn.rejected },
       format: res.format, size: [res.width, res.height], bits: res.bits, active: A, cfa: res.cfa, colors4: !!res.colors4,
       black: res.black, blackSource: res.blackSource, white: res.white, whiteSource: res.whiteSource,

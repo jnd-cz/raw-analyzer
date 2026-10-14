@@ -123,6 +123,7 @@
     renderInfo();
     updatePtc();
     updatePattern();
+    updateDefects();
   }
 
   // ---------------------------------------------------------------- areas
@@ -567,6 +568,79 @@
 
 
 
+  // ---------------------------------------------------------- hot / stuck / dead pixels
+  let defectTimer = 0;
+  const KIND_NAMES = { hot: 'hot', stuck: 'stuck (saturated)', dead: 'dead (dark)' };
+
+  function updateDefects() {
+    state.defects = null;
+    viewer.defects = null;
+    $('defectStats').innerHTML = '';
+    $('defectList').innerHTML = '';
+    $('defectNotes').innerHTML = '<p class="muted">Scanning&hellip;</p>';
+    clearTimeout(defectTimer);
+    const img = state.img;
+    defectTimer = setTimeout(() => {
+      if (state.img !== img) return;
+      state.defects = Analysis.defectPixels(img, state.levels, state.sigma);
+      viewer.defects = state.defects.list;
+      renderDefects();
+      viewer.requestRender();
+    }, 120);
+  }
+
+  function renderDefects() {
+    const d = state.defects, img = state.img;
+    if (!d) return;
+    const ch = [0, 1, 2, 3];
+    const per = (n) => (n / d.area * 4 * 1e6); // per million pixels of that channel
+    const tot = { hot: 0, strong: 0, stuck: 0, dead: 0 };
+    for (const k of d.counts) for (const f in tot) tot[f] += k[f];
+    let html = '<thead><tr><th></th>' + ch.map((i) => `<th style="color:${CH_COLORS[i]}">${CH_NAMES[i]}</th>`).join('') + '<th>All</th></tr></thead><tbody>';
+    const row = (label, f, title) => `<tr><td${title ? ` title="${title}"` : ''}>${label}</td>` + ch.map((i) => `<td>${fmtInt(d.counts[i][f])}</td>`).join('') + `<td>${fmtInt(tot[f])}</td></tr>`;
+    html += row('Hot', 'hot', 'above all same-colour neighbours by more than the threshold');
+    html += row('of which strong', 'strong', 'more than 64 read-noise sigmas above the neighbours');
+    html += row('Stuck (saturated)', 'stuck');
+    html += row('Dead (dark)', 'dead', 'below all neighbours in a lit, smooth area');
+    html += '<tr><td>Hot per million px</td>' + ch.map((i) => `<td>${fmt(per(d.counts[i].hot), 1)}</td>`).join('') + `<td>${fmt(tot.hot / d.area * 1e6, 1)}</td></tr>`;
+    $('defectStats').innerHTML = html + '</tbody>';
+    $('defectSource').textContent = `(image area, ${fmtInt(d.list.length)} found${d.truncated ? ', list truncated' : ''})`;
+
+    const top = d.list.slice(0, 12);
+    $('defectList').innerHTML = top.length ? '<thead><tr><th>Position</th><th>Ch</th><th>Kind</th><th>Value</th><th>Neighbours</th><th>Excess</th></tr></thead><tbody>' +
+      top.map((p, k) => `<tr data-k="${k}"><td>${p.x}, ${p.y}</td><td style="color:${CH_COLORS[p.c]}">${CH_NAMES[p.c]}</td><td>${KIND_NAMES[p.kind]}</td>` +
+        `<td>${p.v}</td><td>${p.ref}</td><td>${fmt(p.excess, 0)}σ</td></tr>`).join('') + '</tbody>' : '';
+
+    // dark frame: every channel stays within 20 read-noise sigmas of black (99th percentile)
+    const st = Analysis.computeStats(histFor('active'), state.levels, state.sigma);
+    const dark = state.sigma && ch.every((i) => st[i] && st[i].p99 - state.levels.black[i] < 20 * state.sigma[i]);
+    const notes = [];
+    if (!d.list.length) notes.push('<p><b>No defective pixels found.</b></p>');
+    if (dark) notes.push('<p>This looks like a <b>dark frame</b> (lens cap on): every hot pixel stands out, so the counts describe the sensor. ' +
+      'Hot pixels grow with exposure time and temperature' + (img.cameraTemp !== undefined ? ` (camera at ${img.cameraTemp} °C)` : '') + '; compare frames taken with the same settings.</p>');
+    else notes.push('<p>In a normal photo only defects in smooth areas can be told apart from the scene, so these counts are a lower bound. ' +
+      'For a sensor check take a <b>dark frame</b>: lens cap and eyepiece cover on, the exposure time and ISO you want to test, long-exposure noise reduction off.</p>');
+    notes.push('<p class="muted">A pixel is flagged when its 8 nearest same-colour neighbours agree with each other and it differs from all of them by more than ' +
+      'max(8 σ read noise, 3 × their range) + 20% of their level. Dead pixels are only detectable in lit areas. Click a row to zoom in.</p>');
+    $('defectNotes').innerHTML = notes.join('');
+  }
+
+  $('defectList').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-k]');
+    if (!tr || !state.defects) return;
+    const p = state.defects.list[+tr.dataset.k];
+    $('showDefects').checked = viewer.showDefects = true;
+    viewer.centerOn(p.x, p.y, 8);
+  });
+  $('showDefects').onchange = (e) => { viewer.showDefects = e.target.checked; viewer.requestRender(); };
+  $('btnDefectsCsv').onclick = () => {
+    const d = state.defects;
+    if (!d) return;
+    const lines = ['x,y,channel,kind,value,neighbours,excess_sigma'];
+    for (const p of d.list) lines.push([p.x, p.y, CH_NAMES[p.c], p.kind, p.v, p.ref, p.excess.toFixed(1)].join(','));
+    download(baseName() + '_defects.csv', lines.join('\n'), 'text/csv');
+  };
+
   function onLevelsChanged() {
     viewer.levels = state.levels;
     state.wb.auto = Analysis.grayWorld(Analysis.computeStats(histFor('active'), state.levels, state.sigma), state.levels.black, state.img.colors4);
@@ -574,6 +648,7 @@
     updateAnalysis();
     updatePtc();
     updatePattern();
+    updateDefects();
   }
 
   $('levelsTable').addEventListener('change', (e) => {

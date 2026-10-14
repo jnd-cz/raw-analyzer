@@ -11,8 +11,8 @@
       from random read noise, with a visibility verdict (Statistics tab)
 - [ ] Banding from dark image areas too, for bodies without a usable masked strip in one
       direction (needs real dark frames to validate)
-- [ ] Hot and stuck pixel map for dark frames and long exposures: list, count per channel,
-      viewer overlay, CSV export
+- [x] Hot and stuck pixel map for dark frames and long exposures: list, count per channel,
+      viewer overlay, CSV export (validate thresholds on real dark frames)
 - [ ] Compare two files side by side: statistics, histograms, noise and PTC estimates
 - [ ] Folder scan: table of date, lens, settings, shutter count, scene brightness and clipping
       for every raw file in a folder (check whether directory access works from file://)

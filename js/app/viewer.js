@@ -75,6 +75,7 @@
       this.demosaic = 'ahd';
       this.dmCache = null; this._dmWant = null; this._dmGen = 0; this._dmTimer = 0; this._dmStatus = '';
       this.onDemosaicStatus = null;
+      this.defects = null; this.showDefects = false;
       this._bindEvents();
       new ResizeObserver(() => { if (this.img) { this._keepCenterOnResize(); this.requestRender(); } }).observe(container);
     }
@@ -409,6 +410,24 @@
       const img = this.img;
       ctx.save();
       ctx.lineWidth = Math.max(1, dpr);
+      if (this.showDefects && this.defects) {
+        // rings around hot (orange), stuck (magenta) and dead (cyan) pixels
+        const s = this.scale * dpr, rad = Math.max(4 * dpr, 1.5 * s);
+        const W = this.canvas.width, H = this.canvas.height;
+        const colors = { hot: '#ff8a3d', stuck: '#ff2bd6', dead: '#3cc4e0' };
+        for (const kind of ['dead', 'hot', 'stuck']) {
+          ctx.strokeStyle = colors[kind];
+          ctx.beginPath();
+          for (const d of this.defects) {
+            if (d.kind !== kind) continue;
+            const x = (d.x + 0.5 - this.ox) * s, y = (d.y + 0.5 - this.oy) * s;
+            if (x < -rad || y < -rad || x > W + rad || y > H + rad) continue;
+            ctx.moveTo(x + rad, y);
+            ctx.arc(x, y, rad, 0, 2 * Math.PI);
+          }
+          ctx.stroke();
+        }
+      }
       if (this.showMasked) {
         const a = img.active;
         const [x, y, w, h] = this._rectToScreen({ x0: a.left, y0: a.top, x1: a.right, y1: a.bottom }, dpr);
@@ -537,6 +556,17 @@
       cv.addEventListener('pointerup', end);
       cv.addEventListener('pointercancel', () => { drag = null; this._dragSel = null; this.box.classList.remove('dragging'); });
       cv.addEventListener('mouseleave', () => { if (this.onHover) this.onHover(null); });
+    }
+
+    /** Centres the view on raw pixel (x, y) at the given zoom. */
+    centerOn(x, y, scale) {
+      const cw = this.box.clientWidth, ch = this.box.clientHeight;
+      this.scale = scale;
+      this.ox = x + 0.5 - cw / 2 / scale;
+      this.oy = y + 0.5 - ch / 2 / scale;
+      this.fitted = false;
+      this._zoomed();
+      this.requestRender();
     }
 
     clearSelection() {

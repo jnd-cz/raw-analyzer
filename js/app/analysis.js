@@ -297,5 +297,65 @@
     return out.rows || out.cols ? out : null;
   }
 
-  window.Analysis = { CH_NAMES, CH_COLORS, ALL_COLOR, computeHist, computeStats, histStats, sumHist, grayWorld, photonTransfer, patternNoise };
+  /**
+   * Hot, stuck and dead pixels in the image area. A pixel is compared with its 8
+   * nearest same-colour neighbours (2 px away), which must agree among themselves,
+   * and flagged when it differs from all of them by more than
+   *   T = max(8 σ_read, 3 × neighbour range) + 0.2 × (neighbour level above black)
+   * The second term keeps photon noise and fine detail in bright areas from
+   * counting: real detail is spread over several pixels by the lens and the AA
+   * filter, a defect is not.
+   *   hot:   above the brightest neighbour by more than T
+   *   stuck: hot and at saturation
+   *   dead:  below the darkest neighbour by more than T while the neighbours are lit
+   *          (32 σ above black); in the dark a dead pixel looks like any other
+   */
+  function defectPixels(img, levels, sigma, maxList) {
+    const { raw, width: W, active: A, cfa } = img;
+    const white = levels.white;
+    const sig = [0, 1, 2, 3].map((c) => Math.max(1, sigma && sigma[c] ? sigma[c] : 2));
+    const counts = [0, 1, 2, 3].map(() => ({ hot: 0, strong: 0, stuck: 0, dead: 0 }));
+    const list = [];
+    const cap = maxList || 100000;
+    let truncated = false;
+    for (let y = A.top + 2; y < A.bottom - 2; y++) {
+      const o = y * W, up = o - 2 * W, dn = o + 2 * W;
+      for (let x = A.left + 2; x < A.right - 2; x++) {
+        const v = raw[o + x], l = raw[o + x - 2], r = raw[o + x + 2];
+        const c = cfa[(y & 1) * 2 + (x & 1)], s8 = 8 * sig[c];
+        const hiLR = l > r ? l : r, loLR = l < r ? l : r;
+        if (v <= hiLR + s8 && v >= loLR - s8) continue; // the full test cannot pass
+        let mx = hiLR, mn = loLR;
+        for (const q of [up + x - 2, up + x, up + x + 2, dn + x - 2, dn + x, dn + x + 2]) {
+          const n = raw[q];
+          if (n > mx) mx = n;
+          if (n < mn) mn = n;
+        }
+        const b = levels.black[c];
+        // the neighbours must agree among themselves: a defect sits in a smooth
+        // area, fine scene detail (specular points, edges) does not
+        const spread = mx - mn;
+        if (spread > s8 + 0.15 * Math.max(0, mn - b)) continue;
+        // local noise: the range of 8 samples is about 3 σ, so 3 × range ~ 8-9 σ
+        // (covers photon noise, which read noise alone does not)
+        const t0 = Math.max(s8, 3 * spread);
+        let kind;
+        if (v > mx + t0 + 0.2 * Math.max(0, mx - b)) kind = v >= white ? 'stuck' : 'hot';
+        else if (v < mn - t0 - 0.2 * Math.max(0, mn - b) && mn - b > 32 * sig[c]) kind = 'dead';
+        else continue;
+        const excess = (kind === 'dead' ? mn - v : v - mx) / sig[c];
+        const k = counts[c];
+        if (kind === 'stuck') k.stuck++;
+        else if (kind === 'dead') k.dead++;
+        else { k.hot++; if (excess > 64) k.strong++; }
+        if (list.length < cap) list.push({ x, y, c, v, ref: kind === 'dead' ? mn : mx, kind, excess });
+        else truncated = true;
+      }
+    }
+    list.sort((p, q) => q.excess - p.excess);
+    const area = (A.right - A.left) * (A.bottom - A.top);
+    return { counts, list, truncated, sig, area };
+  }
+
+  window.Analysis = { CH_NAMES, CH_COLORS, ALL_COLOR, computeHist, computeStats, histStats, sumHist, grayWorld, photonTransfer, patternNoise, defectPixels };
 })();

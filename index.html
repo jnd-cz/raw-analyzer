@@ -181,6 +181,14 @@
         <h3>Pattern noise <span class="muted">(banding, from the masked border)</span></h3>
         <div class="table-wrap"><table class="data" id="patternStats"></table></div>
         <div id="patternNotes" class="notes"></div>
+        <h3>Hot, stuck and dead pixels <span class="muted" id="defectSource"></span></h3>
+        <div class="table-wrap"><table class="data" id="defectStats"></table></div>
+        <div class="row-actions">
+          <label class="chk"><input type="checkbox" id="showDefects"> Mark on the image</label>
+          <button class="btn small" id="btnDefectsCsv">Export CSV</button>
+        </div>
+        <div class="table-wrap"><table class="data click" id="defectList"></table></div>
+        <div id="defectNotes" class="notes"></div>
         <h3>Sensor estimate <span class="muted">(photon transfer, from this image)</span></h3>
         <div class="kv" id="ptcKv"><div class="muted">Computing&hellip;</div></div>
         <div class="chart-wrap ptc" id="ptcWrap">

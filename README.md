@@ -49,6 +49,11 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   with a verdict on visible banding. Weak banding is reported as an upper limit
   when the strip is too small to detect it, and border strips read at a different
   level than the black level (the 50D's top border) are left out.
+- **Hot, stuck and dead pixels** in the image area: a pixel is flagged when its 8
+  nearest same-colour neighbours agree with each other and it differs from all of
+  them by more than the local noise allows. Counts per channel, the strongest
+  defects (click to zoom in), an overlay on the image and CSV export. On a dark frame
+  the counts describe the sensor; in a normal photo they are a lower bound.
 - **Sensor estimate (photon transfer)** from a single image: noise versus signal
   measured on flat 8×8 same-colour patches, fitted to noise² = read² + signal/gain.
   Shows gain (e⁻/DN, also scaled to ISO 100), read noise in electrons, full-well

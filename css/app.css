@@ -199,6 +199,8 @@ table.data td.ch { font-weight: 600; }
 table.data td.ch .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 table.data td.warn { color: var(--warn); }
 table.data td.bad { color: var(--danger); }
+table.data.click tbody tr { cursor: pointer; }
+table.data.click tbody tr:hover td { background: var(--panel-3); }
 table.levels input { width: 76px; height: 24px; text-align: right; background: var(--panel-2); border: 1px solid var(--border-strong); border-radius: 5px; color: var(--text); font-family: var(--mono); font-size: 12px; padding: 0 5px; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 
