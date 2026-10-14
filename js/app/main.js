@@ -122,6 +122,7 @@
     renderMeta();
     renderInfo();
     updatePtc();
+    updatePattern();
   }
 
   // ---------------------------------------------------------------- areas
@@ -505,12 +506,74 @@
     $('shadowNotes').innerHTML = notes.join('');
   }
 
+  // ---------------------------------------------------------- pattern noise
+  function updatePattern() {
+    state.pattern = Analysis.patternNoise(state.img, state.levels.black);
+    renderPattern();
+  }
+
+  function renderPattern() {
+    const p = state.pattern;
+    if (!p) {
+      $('patternStats').innerHTML = '';
+      $('patternNotes').innerHTML = '<p class="muted">Needs an optically black (masked) border, which this file does not have.</p>';
+      return;
+    }
+    const ratio = (c, i) => (c && p.random[i] ? c.line / p.random[i] : null);
+    const cls = (r) => (r >= 0.25 ? 'bad' : r >= 0.1 ? 'warn' : '');
+    const line = (o, i) => {
+      const c = o && o.ch[i];
+      if (!c) return '<td>–</td>';
+      return c.detected ? `<td>${fmt(c.line, 2)}</td>` : `<td class="muted" title="not detected; upper limit">&lt;${fmt(c.limit, 2)}</td>`;
+    };
+    const rel = (o, i) => {
+      const c = o && o.ch[i], r = ratio(c, i);
+      if (r === null) return '<td>–</td>';
+      return c.detected ? `<td class="${cls(r)}">${Math.round(100 * r)}%</td>` : `<td class="muted">&lt;${Math.round((100 * c.limit) / p.random[i])}%</td>`;
+    };
+    const ch = [0, 1, 2, 3];
+    let html = '<thead><tr><th></th>' + ch.map((i) => `<th style="color:${CH_COLORS[i]}">${CH_NAMES[i]}</th>`).join('') + '</tr></thead><tbody>';
+    html += '<tr><td>Random noise σ (DN)</td>' + ch.map((i) => `<td>${fmt(p.random[i], 2)}</td>`).join('') + '</tr>';
+    html += '<tr><td title="horizontal banding: offsets shared by a whole row">Row noise σ</td>' + ch.map((i) => line(p.rows, i)).join('') + '</tr>';
+    html += '<tr><td>Row / random</td>' + ch.map((i) => rel(p.rows, i)).join('') + '</tr>';
+    html += '<tr><td title="vertical banding: offsets shared by a whole column">Column noise σ</td>' + ch.map((i) => line(p.cols, i)).join('') + '</tr>';
+    html += '<tr><td>Column / random</td>' + ch.map((i) => rel(p.cols, i)).join('') + '</tr>';
+    $('patternStats').innerHTML = html + '</tbody>';
+
+    const notes = [];
+    const src = [];
+    if (p.rows) src.push(`rows from the ${p.rowStrip} border (${p.rows.width} × ${p.rows.length} px)`);
+    if (p.cols) src.push(`columns from the ${p.colStrip} border (${p.cols.length} × ${p.cols.width} px)`);
+    notes.push(`<p>Measured on ${src.join(' and ')}. ` +
+      (!p.cols ? 'There is no usable masked strip along the top or bottom, so vertical banding cannot be measured. ' : '') +
+      (!p.rows ? 'There is no usable masked strip along the left or right, so horizontal banding cannot be measured. ' : '') +
+      (p.rejected.length ? 'Not used: ' + p.rejected.join(', ') + '. ' : '') + '</p>');
+    const det = (o, i) => (o && o.ch[i] && o.ch[i].detected ? ratio(o.ch[i], i) : 0);
+    const worstRow = Math.max(0, ...ch.map((i) => det(p.rows, i))), worstCol = Math.max(0, ...ch.map((i) => det(p.cols, i)));
+    const worst = Math.max(worstRow, worstCol);
+    const dir = worstRow >= 0.8 * worst && worstCol >= 0.8 * worst ? 'horizontal and vertical' : worstCol > worstRow ? 'vertical' : 'horizontal';
+    const pct = Math.round(worst * 100);
+    let verdict;
+    if (worst < 0.05) verdict = '<b>No banding detected.</b> Line offsets are below 5% of the random noise, too weak to see even in pushed shadows.';
+    else if (worst < 0.1) verdict = `<b>Faint ${dir} pattern</b> (${pct}% of the random noise): visible at most in flat, strongly pushed shadows.`;
+    else if (worst < 0.25) verdict = `<b>Moderate ${dir} banding</b> (${pct}% of the random noise): expect stripes in flat areas when shadows are pushed several EV.`;
+    else verdict = `<b>Strong ${dir} banding</b> (${pct}% of the random noise): stripes show in lifted shadows and limit how far they can be pushed.`;
+    notes.push('<p>' + verdict + '</p>');
+    notes.push('<p class="muted">The eye picks up a stripe across the whole frame at roughly a tenth of the random noise, because it averages along the line. ' +
+      'Noise reduction and downsizing remove random noise but leave banding, so banding often sets the real limit for shadow lifting. ' +
+      'Values marked &lt; are upper limits: the strip is too small to detect weaker banding.</p>');
+    $('patternNotes').innerHTML = notes.join('');
+  }
+
+
+
   function onLevelsChanged() {
     viewer.levels = state.levels;
     state.wb.auto = Analysis.grayWorld(Analysis.computeStats(histFor('active'), state.levels, state.sigma), state.levels.black, state.img.colors4);
     viewer.wb = currentWB();
     updateAnalysis();
     updatePtc();
+    updatePattern();
   }
 
   $('levelsTable').addEventListener('change', (e) => {

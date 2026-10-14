@@ -539,11 +539,18 @@
       return Math.max(...segs) - Math.min(...segs) <= Math.max(6, mean * 0.01) ? r : null;
     };
     // fixed preference (left like LibRaw and RawDigger, then top, right, bottom)
-    const L = blackRun(colMean, 0, A.left);
-    let rect = flat(L && { x0: L.from, x1: L.to, y0: A.top, y1: A.bottom });
-    if (!rect) { const T = blackRun(rowMean, 0, A.top); rect = flat(T && { x0: A.left, x1: A.right, y0: T.from, y1: T.to }); }
-    if (!rect) { const R = blackRun(colMean, A.right, W - 1); rect = flat(R && { x0: R.from, x1: R.to, y0: A.top, y1: A.bottom }); }
-    if (!rect) { const B = blackRun(rowMean, A.bottom, H - 1); rect = flat(B && { x0: A.left, x1: A.right, y0: B.from, y1: B.to }); }
+    // every valid strip is kept: the pattern-noise analysis needs a vertical one
+    // (row noise) and a horizontal one (column noise)
+    const L = blackRun(colMean, 0, A.left), T = blackRun(rowMean, 0, A.top);
+    const R = blackRun(colMean, A.right, W - 1), B = blackRun(rowMean, A.bottom, H - 1);
+    const rects = {
+      left: flat(L && { x0: L.from, x1: L.to, y0: A.top, y1: A.bottom }),
+      top: flat(T && { x0: A.left, x1: A.right, y0: T.from, y1: T.to }),
+      right: flat(R && { x0: R.from, x1: R.to, y0: A.top, y1: A.bottom }),
+      bottom: flat(B && { x0: A.left, x1: A.right, y0: B.from, y1: B.to }),
+    };
+    for (const k in rects) if (!rects[k]) delete rects[k];
+    const rect = rects.left || rects.top || rects.right || rects.bottom;
     if (!rect || rect.x1 <= rect.x0 || rect.y1 <= rect.y0) return null;
     const hist = [new Uint32Array(65536), new Uint32Array(65536), new Uint32Array(65536), new Uint32Array(65536)];
     const cnt = [0, 0, 0, 0];
@@ -556,7 +563,7 @@
         cnt[c]++;
       }
     }
-    return { rect, ch: hist.map((h, i) => chanHistStats(h, cnt[i])) };
+    return { rect, rects, ch: hist.map((h, i) => chanHistStats(h, cnt[i])) };
   }
 
   /** Per channel histograms of the image area (borders can hold hot or odd pixels). */

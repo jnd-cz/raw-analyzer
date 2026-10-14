@@ -43,6 +43,12 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   estimated from flat dark image areas when there is no border), noise floor in EV,
   engineering dynamic range, share of pixels below 1, 2, 4 and 10 sigma, shadow SNR,
   a noise-floor marker in the histogram, and a viewer overlay for near-floor areas.
+- **Pattern noise (banding)**: row and column noise from the masked border,
+  separated from random noise (differences of neighbouring lines, so gradients
+  such as amp glow do not count), per channel and relative to the random noise,
+  with a verdict on visible banding. Weak banding is reported as an upper limit
+  when the strip is too small to detect it, and border strips read at a different
+  level than the black level (the 50D's top border) are left out.
 - **Sensor estimate (photon transfer)** from a single image: noise versus signal
   measured on flat 8×8 same-colour patches, fitted to noise² = read² + signal/gain.
   Shows gain (e⁻/DN, also scaled to ISO 100), read noise in electrons, full-well

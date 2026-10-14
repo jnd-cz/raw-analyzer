@@ -208,5 +208,94 @@
     return res;
   }
 
-  window.Analysis = { CH_NAMES, CH_COLORS, ALL_COLOR, computeHist, computeStats, histStats, sumHist, grayWorld, photonTransfer };
+  /**
+   * Pattern (banding) noise from the masked border, per CFA channel.
+   * Row noise comes from a vertical strip (left or right border): the mean of each
+   * row across the strip. Column noise comes from a horizontal strip (top or
+   * bottom): the mean of each column down the strip. Each line mean carries the
+   * line offset plus random noise / sqrt(samples), so
+   *   var(m[k+1] - m[k]) / 2 = σ_line² + σ_random² / n
+   * over neighbouring same-colour lines (the differences also remove slow gradients
+   * such as amp glow). Outlying differences and hot pixels are left out. A strip
+   * whose level differs from the black level is a separately read area (the 50D's
+   * top border sits 35 DN low, with its own column pattern) and is not used.
+   */
+  function patternNoise(img, black) {
+    const M = img.masked;
+    if (!M || !M.rects) return null;
+    const { raw, width: W, cfa } = img;
+    const med = (a) => { const s = Float64Array.from(a).sort(); const n = s.length; return n ? (n & 1 ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2) : NaN; };
+
+    function lines(rect, isRow) {
+      const a0 = isRow ? rect.y0 : rect.x0, a1 = isRow ? rect.y1 : rect.x1;
+      const b0 = isRow ? rect.x0 : rect.y0, b1 = isRow ? rect.x1 : rect.y1;
+      const per = [0, 1, 2, 3].map(() => ({ means: [], pos: [], within: 0, wn: 0, samples: 0 }));
+      for (let i = a0; i < a1; i++) {
+        for (let p = 0; p < 2; p++) {
+          const c = isRow ? cfa[(i & 1) * 2 + p] : cfa[p * 2 + (i & 1)];
+          const ch = M.ch[c];
+          if (!ch) continue;
+          const lo = ch.mean - 6 * ch.sd - 2, hi = ch.mean + 6 * ch.sd + 2;
+          let s = 0, s2 = 0, n = 0;
+          for (let j = b0 + ((b0 & 1) !== p ? 1 : 0); j < b1; j += 2) {
+            const v = isRow ? raw[i * W + j] : raw[j * W + i];
+            if (v < lo || v > hi) continue; // hot or dead pixel
+            s += v; s2 += v * v; n++;
+          }
+          if (n < 2) continue;
+          const m = s / n, e = per[c];
+          e.means.push(m); e.pos.push(i); e.sum = (e.sum || 0) + s;
+          e.within += s2 - n * m * m; e.wn += n - 1; e.samples += n;
+        }
+      }
+      const res = per.map((e) => {
+        if (e.means.length < 8 || !e.wn) return null;
+        const random = Math.sqrt(e.within / e.wn);
+        const n = e.samples / e.means.length;
+        const d = [];
+        for (let k = 1; k < e.means.length; k++) d.push(e.means[k] - e.means[k - 1]);
+        // variance of the differences, with outliers beyond 5 robust sigmas removed
+        const md = med(d);
+        const mad = 1.4826 * med(d.map((x) => Math.abs(x - md))) || 1e-9;
+        let s2 = 0, k2 = 0;
+        for (const x of d) if (Math.abs(x - md) <= 5 * mad) { s2 += (x - md) * (x - md); k2++; }
+        const total = s2 / Math.max(1, k2 - 1) / 2;          // σ_line² + σ_random² / n
+        const line2 = total - (random * random) / n;
+        // standard error of that variance: below three of them the banding counts as not detected
+        const se = total * Math.sqrt(2 / Math.max(1, k2 - 1));
+        return {
+          level: e.sum / e.samples,
+          random, line: Math.sqrt(Math.max(0, line2)), detected: line2 > 3 * se, limit: Math.sqrt(Math.max(0, line2) + 2 * se),
+          lines: e.means.length, perLine: n,
+        };
+      });
+      return { rect, ch: res, length: a1 - a0, width: b1 - b0 };
+    }
+
+    const rejected = [];
+    // first usable strip of each orientation: its level must match the black level
+    const pick = (names, isRow) => {
+      for (const k of names) {
+        const r = M.rects[k];
+        if (!r) continue;
+        const L = lines(r, isRow);
+        const off = L.ch.map((c, i) => (c && black ? c.level - black[i] : 0));
+        const bad = L.ch.some((c, i) => c && Math.abs(off[i]) > Math.max(3, 0.5 * c.random));
+        if (!bad) return Object.assign(L, { side: k });
+        const worst = off.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
+        rejected.push(`${k} border (${worst > 0 ? '+' : ''}${worst.toFixed(0)} DN from black, read separately)`);
+      }
+      return null;
+    };
+    const rows = pick(['left', 'right'], true), cols = pick(['top', 'bottom'], false);
+    const out = { rows, cols, rowStrip: rows && rows.side, colStrip: cols && cols.side, rejected };
+    // random noise: from the strip with more samples per channel
+    out.random = [0, 1, 2, 3].map((c) => {
+      const a = out.rows && out.rows.ch[c], b = out.cols && out.cols.ch[c];
+      return a && b ? (a.lines * a.perLine >= b.lines * b.perLine ? a.random : b.random) : (a || b) ? (a || b).random : null;
+    });
+    return out.rows || out.cols ? out : null;
+  }
+
+  window.Analysis = { CH_NAMES, CH_COLORS, ALL_COLOR, computeHist, computeStats, histStats, sumHist, grayWorld, photonTransfer, patternNoise };
 })();

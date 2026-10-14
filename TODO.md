@@ -7,9 +7,10 @@
       Reference data for the sample files stays out of git (large), the scripts regenerate it.
 
 ## Analysis features
-- [ ] Banding and pattern noise: row and column noise from the masked border (and dark
-      image areas), separated from random read noise; add to the Shadows / Sensor estimate
-      sections and to the shadow-push table
+- [x] Banding and pattern noise: row and column noise from the masked border, separated
+      from random read noise, with a visibility verdict (Statistics tab)
+- [ ] Banding from dark image areas too, for bodies without a usable masked strip in one
+      direction (needs real dark frames to validate)
 - [ ] Hot and stuck pixel map for dark frames and long exposures: list, count per channel,
       viewer overlay, CSV export
 - [ ] Compare two files side by side: statistics, histograms, noise and PTC estimates
