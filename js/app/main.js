@@ -117,6 +117,7 @@
 
     viewer.setImage(img, state.levels, currentWB());
     $('btnExport').disabled = false;
+    $('btnCompare').disabled = false;
     autoExposure(activeStats);
     updateAnalysis();
     renderMeta();
@@ -641,6 +642,216 @@
     download(baseName() + '_defects.csv', lines.join('\n'), 'text/csv');
   };
 
+  // ---------------------------------------------------------- compare two files
+  /** Analysis results of one image for the comparison (image area). */
+  function profileOf(img, levels, sigma, have) {
+    const A = img.active;
+    const histo = have && have.histo || Analysis.computeHist(img, { x0: A.left, y0: A.top, x1: A.right, y1: A.bottom });
+    return {
+      img, levels, sigma, histo,
+      stats: Analysis.computeStats(histo, levels, sigma),
+      pattern: have && have.pattern !== undefined ? have.pattern : Analysis.patternNoise(img, levels.black),
+      ptc: have && have.ptc || null,
+      defects: have && have.defects || null,
+    };
+  }
+
+  function compareWith(file) {
+    if (!file || !state.img) return;
+    const prog = $('progress');
+    prog.hidden = false;
+    prog.querySelector('.label').textContent = 'Decoding ' + file.name;
+    file.arrayBuffer()
+      .then((buf) => decodeRaw(buf, file.name, (p) => prog.querySelector('.bar').style.setProperty('--p', Math.round(p * 100) + '%')))
+      .then((img) => { prog.hidden = true; setCompare(img); showTab('compare'); })
+      .catch((err) => { prog.hidden = true; $('cmpBody').innerHTML = `<p class="bad">Could not open ${esc(file.name)}: ${esc(err.message)}</p>`; showTab('compare'); });
+  }
+
+  function setCompare(img) {
+    const levels = { black: img.black.slice(), white: img.white };
+    const sigma = img.noise ? img.noise.sigma.slice() : null;
+    const b = profileOf(img, levels, sigma);
+    state.cmp = b;
+    renderCompare();
+    // the slower estimates follow
+    setTimeout(() => {
+      if (state.cmp !== b) return;
+      b.ptc = Analysis.photonTransfer(img, levels, sigma);
+      b.defects = Analysis.defectPixels(img, levels, sigma);
+      renderCompare();
+    }, 50);
+  }
+
+  function profileA() {
+    if (!state.ptc) state.ptc = Analysis.photonTransfer(state.img, state.levels, state.sigma);
+    return profileOf(state.img, state.levels, state.sigma, { histo: histFor('active'), pattern: state.pattern, ptc: state.ptc, defects: state.defects });
+  }
+
+  function renderCompare() {
+    const b = state.cmp;
+    $('btnCmpSwap').disabled = $('btnCmpClose').disabled = !b;
+    if (!b) {
+      $('cmpBody').innerHTML = '<p class="muted">Open a second raw file with <b>Compare with&hellip;</b> to see both side by side: ' +
+        'exposure, noise, dynamic range, banding and defects. Useful for two bodies, two ISO settings or two exposures of the same scene.</p>';
+      $('cmpWrap').hidden = true;
+      return;
+    }
+    const a = profileA();
+    const name = (p) => esc(p.img.fileName);
+    const f = (p) => p.img.facts;
+    const sum = (p, k) => { const r = p.img.summary.find((x) => x[0] === k); return r ? r[1] : '–'; };
+    const ch = [0, 1, 2, 3];
+    const nCh = (p) => (p.img.colors4 ? 4 : 3);
+    const worst = (p, fn) => Math.max(...ch.map((i) => (p.stats[i] ? fn(p.stats[i]) : -Infinity)));
+    const least = (p, fn) => Math.min(...ch.map((i) => (p.stats[i] ? fn(p.stats[i]) : Infinity)));
+    const gStat = (p) => p.stats[1];
+    const meanSigma = (p) => (p.sigma ? p.sigma.reduce((x, y) => x + y, 0) / 4 : null);
+    const range = (p) => p.levels.white - p.levels.black.reduce((x, y) => x + y, 0) / 4;
+    const lineWorst = (p, key) => {
+      const o = p.pattern && p.pattern[key];
+      if (!o) return null;
+      return Math.max(0, ...ch.map((i) => (o.ch[i] && o.ch[i].detected && p.pattern.random[i] ? o.ch[i].line / p.pattern.random[i] : 0)));
+    };
+    const defectTot = (p, k) => (p.defects ? p.defects.counts.reduce((s, c) => s + c[k], 0) : null);
+    // [label, fn(p) -> number|string, format, delta format]
+    const ev = (v) => (v === null || !isFinite(v) ? '–' : fmtEV(v));
+    const num = (d) => (v) => (v === null || v === undefined || !isFinite(v) ? '–' : v.toFixed(d));
+    const pct = (v) => (v === null || !isFinite(v) ? '–' : fmtPct(v) + '%');
+    const pct0 = (v) => (v === null ? '–' : Math.round(v * 100) + '%');
+    const int = (v) => (v === null || v === undefined ? '…' : fmtInt(v));
+    const sections = [
+      ['Files', [
+        ['File', (p) => p.img.fileName, esc],
+        ['Camera', (p) => f(p).model || '–', esc],
+        ['Lens', (p) => sum(p, 'Lens'), esc],
+        ['Exposure', (p) => [f(p).exposureTime ? RL.fmtShutter(f(p).exposureTime) : '', f(p).fnumber ? 'f/' + RL.fmtNum(f(p).fnumber, 1) : '', f(p).iso ? 'ISO ' + f(p).iso : ''].filter(Boolean).join(', ') || '–', esc],
+        ['Scene', (p) => (p.img.scene && p.img.scene.measured !== null ? `LV ${p.img.scene.measured.toFixed(1)}` : '–'), esc],
+        ['Image area', (p) => `${p.img.active.right - p.img.active.left} × ${p.img.active.bottom - p.img.active.top}, ${p.img.bits} bit`, esc],
+      ]],
+      ['Exposure (image area)', [
+        ['Green median', (p) => gStat(p) && gStat(p).medianEV, ev, true],
+        ['Brightest 0.1% (P99.9)', (p) => worst(p, (s) => s.p999EV), ev, true],
+        ['Clipped, worst channel', (p) => worst(p, (s) => s.clippedPct), pct],
+        ['At the noise floor, weakest channel', (p) => (p.sigma ? worst(p, (s) => s.floor1 || 0) : null), pct],
+      ]],
+      ['Noise and range', [
+        ['Read noise (DN)', (p) => meanSigma(p), num(2)],
+        ['Read noise (e⁻)', (p) => (p.ptc && p.ptc.ok ? p.ptc.readE : null), num(1)],
+        ['Gain (e⁻/DN)', (p) => (p.ptc && p.ptc.ok ? p.ptc.gain : null), num(2)],
+        ['Full well (e⁻)', (p) => (p.ptc && p.ptc.ok ? Math.round(p.ptc.fwc) : null), int],
+        ['Dynamic range, engineering (EV)', (p) => (meanSigma(p) ? Math.log2(range(p) / meanSigma(p)) : null), num(1), true],
+        ['Range to SNR 10 (EV)', (p) => (p.ptc && p.ptc.ok ? p.ptc.ev[10] : null), num(1), true],
+        ['Row banding / random', (p) => lineWorst(p, 'rows'), pct0],
+        ['Column banding / random', (p) => lineWorst(p, 'cols'), pct0],
+      ]],
+      ['Defects (image area)', [
+        ['Hot pixels', (p) => defectTot(p, 'hot'), int],
+        ['of which strong', (p) => defectTot(p, 'strong'), int],
+        ['Stuck / dead', (p) => (p.defects ? defectTot(p, 'stuck') + defectTot(p, 'dead') : null), int],
+        ['Hot per million px', (p) => (p.defects ? defectTot(p, 'hot') / p.defects.area * 1e6 : null), num(1)],
+      ]],
+    ];
+    let html = `<table class="data cmp"><thead><tr><th></th><th>A <span class="muted">(viewer)</span></th><th>B</th><th>B − A</th></tr></thead>`;
+    for (const [title, rows] of sections) {
+      html += `<tbody><tr class="sec"><td colspan="4">${title}</td></tr>`;
+      for (const [label, fn, format, delta] of rows) {
+        const va = fn(a), vb = fn(b);
+        const d = delta && typeof va === 'number' && typeof vb === 'number' && isFinite(va) && isFinite(vb) ? (vb - va >= 0.05 ? '+' : vb - va <= -0.05 ? '−' : '±') + Math.abs(vb - va).toFixed(1) + ' EV' : '';
+        html += `<tr><td>${label}</td><td>${format(va)}</td><td>${format(vb)}</td><td>${d}</td></tr>`;
+      }
+      html += '</tbody>';
+    }
+    $('cmpBody').innerHTML = html + '</table>' +
+      `<p class="notes muted">A: ${name(a)}, B: ${name(b)}. EV values are relative to each file's own saturation level, so files with different bit depths compare directly. ` +
+      'B uses the levels from its file; edits in the Levels table apply to A only.' + (b.ptc ? '' : ' Computing B&rsquo;s sensor estimate and defects&hellip;') + '</p>';
+    $('cmpWrap').hidden = false;
+    drawCompare(a, b, nCh);
+  }
+
+  /** Histograms of A (solid) and B (dashed) in EV below saturation, per channel. */
+  function drawCompare(a, b) {
+    const c = $('cmpCanvas');
+    const dpr = window.devicePixelRatio || 1;
+    const W = c.clientWidth, H = c.clientHeight;
+    if (!W || !H) return;
+    c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const L = 34, R = W - 10, T = 10, B = H - 24;
+    const EV0 = -14, BINS = 14 * 6;
+    const curves = (p) => {
+      const out = [];
+      const colors4 = p.img.colors4;
+      const groups = colors4 ? [[0], [1], [2], [3]] : [[0], [1, 3], [2]];
+      for (const g of groups) {
+        const bins = new Float64Array(BINS);
+        let n = 0;
+        for (const i of g) {
+          const h = p.histo.hist[i], bl = p.levels.black[i], rng = p.levels.white - bl;
+          for (let v = 0; v < h.length; v++) {
+            const k = h[v];
+            if (!k) continue;
+            n += k;
+            const e = v - bl > 0 ? Math.log2((v - bl) / rng) : -99;
+            const j = Math.floor((e - EV0) * 6);
+            if (j >= 0 && j < BINS) bins[j] += k;
+            else if (j >= BINS) bins[BINS - 1] += k;
+          }
+        }
+        for (let j = 0; j < BINS; j++) bins[j] /= n || 1;
+        out.push({ bins, color: colors4 ? CH_COLORS[g[0]] : CH_COLORS[g[0]] });
+      }
+      return out;
+    };
+    const ca = curves(a), cb = curves(b);
+    const max = Math.max(1e-9, ...ca.flatMap((q) => [...q.bins]), ...cb.flatMap((q) => [...q.bins]));
+    const X = (e) => L + ((e - EV0) / -EV0) * (R - L);
+    const Y = (v) => B - (Math.sqrt(v / max)) * (B - T); // square root scale shows both peaks and tails
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.strokeStyle = '#2a2f36'; ctx.fillStyle = '#8a939d';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let e = EV0; e <= 0; e += 2) {
+      const x = Math.round(X(e)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, B); ctx.stroke();
+      ctx.fillText(e === 0 ? '0 EV' : String(e), x, B + 6);
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('A solid, B dashed (√ scale)', L + 4, T);
+    for (const [set, dash] of [[ca, []], [cb, [4, 3]]]) {
+      ctx.setLineDash(dash);
+      for (const q of set) {
+        ctx.strokeStyle = q.color; ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        for (let j = 0; j < BINS; j++) {
+          const x = X(EV0 + (j + 0.5) / 6), y = Y(q.bins[j]);
+          if (j) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+  }
+
+  function showTab(name) {
+    document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x.dataset.tab === name));
+    document.querySelectorAll('.tabpane').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + name));
+    if (name === 'compare') renderCompare();
+  }
+
+  $('btnCompare').onclick = () => $('fileInputB').click();
+  $('fileInputB').onchange = () => { compareWith($('fileInputB').files[0]); $('fileInputB').value = ''; };
+  $('btnCmpClose').onclick = () => { state.cmp = null; renderCompare(); };
+  $('btnCmpSwap').onclick = () => {
+    const b = state.cmp, prevA = state.img;
+    if (!b) return;
+    state.cmp = null;
+    loadImage(b.img);
+    setCompare(prevA);
+    showTab('compare');
+  };
+  new ResizeObserver(() => { if (state.cmp && $('tab-compare').classList.contains('active')) renderCompare(); }).observe($('cmpWrap'));
+
   function onLevelsChanged() {
     viewer.levels = state.levels;
     state.wb.auto = Analysis.grayWorld(Analysis.computeStats(histFor('active'), state.levels, state.sigma), state.levels.black, state.img.colors4);
@@ -891,6 +1102,7 @@
     document.querySelectorAll('.tabpane').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + t.dataset.tab));
     if (t.dataset.tab === 'hist') drawCharts();
     if (t.dataset.tab === 'stats') drawPtc();
+    if (t.dataset.tab === 'compare') renderCompare();
   }));
 
   // ---------------------------------------------------------- file input
@@ -925,5 +1137,5 @@
   });
 
   renderLegend();
-  window.RawAnalyzer = { openFile, state, viewer, loadImage };
+  window.RawAnalyzer = { openFile, compareWith, state, viewer, loadImage };
 })();

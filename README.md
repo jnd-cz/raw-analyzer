@@ -60,6 +60,11 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   capacity, the range down to SNR 1 / 4 / 10 / 20, and a shadow-push table (SNR of
   mid-tones and shadows after pushing 1–5 EV). One frame typically lands within
   ±25% of a multi-frame average; busy scenes read low.
+- **Compare two files**: *Compare with…* opens a second raw file next to the
+  current one. The Compare tab lists both side by side (exposure, scene brightness,
+  read noise, gain, full well, dynamic range, banding, defects, with differences in
+  EV) and overlays their histograms on an EV scale, so bodies with different bit
+  depths compare directly. *Swap A and B* shows the other file in the viewer.
 - **Levels**: black level per channel and saturation level. Defaults come from
   Canon ColorData, the masked border, LibRaw's camera table, or clipping detected
   in the data (including the D30/D60 sensors, whose clipped pixels spread over a few

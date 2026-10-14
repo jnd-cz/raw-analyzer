@@ -15,6 +15,8 @@
     </div>
     <button id="btnOpen" class="btn primary" title="Open a raw file (Ctrl+O)">Open raw&hellip;</button>
     <input id="fileInput" type="file" accept=".crw,.cr2,.cr3,.tif,.tiff,.CRW,.CR2,.CR3,.TIF" hidden>
+    <button id="btnCompare" class="btn" title="Open a second raw file to compare with this one" disabled>Compare with&hellip;</button>
+    <input id="fileInputB" type="file" accept=".crw,.cr2,.cr3,.tif,.tiff,.CRW,.CR2,.CR3,.TIF" hidden>
     <button id="btnExport" class="btn" title="Save a developed image: JPEG, PNG or 16-bit TIFF (Ctrl+E)" disabled>Export image&hellip;</button>
     <div id="fileTitle" class="file-title"></div>
     <div class="spacer"></div>
@@ -109,6 +111,7 @@
         <button class="tab" data-tab="stats" role="tab">Statistics</button>
         <button class="tab" data-tab="meta" role="tab">Metadata</button>
         <button class="tab" data-tab="info" role="tab">File</button>
+        <button class="tab" data-tab="compare" role="tab">Compare</button>
       </nav>
 
       <div class="tabpane active" id="tab-hist">
@@ -213,6 +216,15 @@
         <div class="kv" id="summary"></div>
         <input type="search" id="metaFilter" placeholder="Filter tags&hellip;" class="search">
         <div id="metaGroups"></div>
+      </div>
+
+      <div class="tabpane" id="tab-compare">
+        <div class="row-actions">
+          <button class="btn small" id="btnCmpSwap" title="Show B in the viewer and compare it with A" disabled>Swap A and B</button>
+          <button class="btn small" id="btnCmpClose" disabled>Close comparison</button>
+        </div>
+        <div class="chart-wrap cmp" id="cmpWrap" hidden><canvas id="cmpCanvas"></canvas></div>
+        <div id="cmpBody"></div>
       </div>
 
       <div class="tabpane" id="tab-info">
