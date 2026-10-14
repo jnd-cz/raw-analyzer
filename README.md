@@ -34,6 +34,11 @@ to the G16, S30 to S120, SX1/SX50/SX60 and Pro1.
   16 bit resolution. Overlay or per channel layout, linear or log Y, linear raw
   values or EV below saturation, adjustable bin width, optional black subtraction,
   hover read-out, CSV and PNG export.
+- **Waveform / parade scope** (Scope: Waveform), as in DaVinci Resolve but on the
+  raw data: image columns left to right, raw level (linear or EV below saturation)
+  bottom to top, brightness = how many pixels of the column sit at that level.
+  Overlay mixes the channels in their colours; Per channel shows them side by side
+  as a parade. Saturation and noise floor are marked; hover for values.
 - **Areas**: image (active) area, full sensor, the masked optical-black border, or
   any rectangle selected on the image (Select tool or Shift+drag).
 - **Statistics**: min, max, mean, median, σ, percentiles, clipped and below-black

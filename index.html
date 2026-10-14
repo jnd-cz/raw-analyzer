@@ -126,19 +126,25 @@
               <option value="selection" disabled>Selection</option>
             </select>
           </label>
-          <label class="ctl">X axis
+          <label class="ctl" title="Histogram, or a waveform / parade scope: image columns left to right, raw level bottom to top">Scope
+            <select id="histScope">
+              <option value="hist">Histogram</option>
+              <option value="wave">Waveform</option>
+            </select>
+          </label>
+          <label class="ctl"><span id="histXLabel">X axis</span>
             <select id="histX">
               <option value="linear">Linear (raw)</option>
               <option value="ev">EV below saturation</option>
             </select>
           </label>
-          <label class="ctl">Y axis
+          <label class="ctl" id="histYCtl">Y axis
             <select id="histY">
               <option value="linear">Linear</option>
               <option value="log">Log</option>
             </select>
           </label>
-          <label class="ctl">Bin
+          <label class="ctl" id="histBinCtl">Bin
             <select id="histBin">
               <option value="auto">Auto</option>
               <option value="1">1</option>
@@ -164,6 +170,10 @@
         </div>
         <div class="chart-wrap small" id="chartWrapAll">
           <canvas id="histCanvasAll"></canvas>
+        </div>
+        <div class="chart-wrap wave" id="waveWrap" hidden>
+          <canvas id="waveCanvas"></canvas>
+          <div class="tooltip" id="waveTip" hidden></div>
         </div>
         <div class="chart-actions">
           <button class="btn small" id="btnHistCsv">Export CSV</button>
@@ -337,6 +347,7 @@
   <script src="js/app/scan.js"></script>
   <script src="js/app/analysis.js"></script>
   <script src="js/app/histogram.js"></script>
+  <script src="js/app/waveform.js"></script>
   <script src="js/app/viewer.js"></script>
   <script src="js/app/main.js"></script>
 </body>

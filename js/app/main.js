@@ -31,6 +31,7 @@
   const viewer = new Viewer($('view'), $('viewport'));
   const chart = new HistChart($('histCanvas'), $('histTip'));
   const chartAll = new HistChart($('histCanvasAll'), null);
+  const waveform = new Waveform($('waveCanvas'), $('waveTip'));
 
   // ------------------------------------------------------------ open file
   function openFile(file) {
@@ -186,6 +187,21 @@
     if (!state.histo) return;
     const lv = state.levels;
     const layout = $('histLayout').value;
+    const wave = $('histScope').value === 'wave';
+    $('chartWrap').hidden = $('chartWrapAll').hidden = wave;
+    $('waveWrap').hidden = !wave;
+    $('histYCtl').hidden = $('histBinCtl').hidden = wave;
+    $('histXLabel').textContent = wave ? 'Levels' : 'X axis';
+    if (wave) {
+      const channels = [0, 1, 2, 3].filter((c) => state.visible[c]).map((c) => ({ c, name: CH_NAMES[c], color: CH_COLORS[c] }));
+      waveform.draw(state.img, state.histo.rect, lv, {
+        channels, layout, yMode: $('histX').value, subBlack: $('histSubBlack').checked,
+        sigma: state.sigma ? state.sigma.reduce((a, b) => a + b, 0) / 4 : 0,
+      });
+      const r = state.histo.rect;
+      $('histNote').textContent = `${(r.x1 - r.x0)} × ${(r.y1 - r.y0)} px · waveform` + (layout === 'stacked' ? ' (parade)' : ' (overlay)');
+      return;
+    }
     const opt = {
       xMode: $('histX').value,
       yMode: $('histY').value,
@@ -1009,8 +1025,9 @@
   $('btnHistPng').onclick = () => {
     if (!state.img) return;
     const a = document.createElement('a');
-    a.href = $('histCanvas').toDataURL('image/png');
-    a.download = baseName() + '_histogram.png';
+    const wave = $('histScope').value === 'wave';
+    a.href = $(wave ? 'waveCanvas' : 'histCanvas').toDataURL('image/png');
+    a.download = baseName() + (wave ? '_waveform.png' : '_histogram.png');
     a.click();
   };
   $('btnStatsCsv').onclick = () => {
@@ -1110,7 +1127,8 @@
 
   // histogram controls
   $('histArea').onchange = (e) => { state.area = e.target.value; updateAnalysis(); };
-  for (const id of ['histX', 'histY', 'histBin', 'histSubBlack', 'histLayout']) $(id).addEventListener('change', () => {
+  new ResizeObserver(() => { if ($('histScope').value === 'wave') drawCharts(); }).observe($('waveWrap'));
+  for (const id of ['histScope', 'histX', 'histY', 'histBin', 'histSubBlack', 'histLayout']) $(id).addEventListener('change', () => {
     $('histBin').disabled = $('histX').value === 'ev';
     drawCharts();
   });
@@ -1160,7 +1178,7 @@
   // viewer and histogram options persist between sessions (per browser); the page
   // works the same when storage is unavailable
   const PREFS_KEY = 'rawAnalyzer.settings';
-  const PREF_IDS = ['demosaic', 'viewMode', 'underK', 'showUnder', 'showClip', 'histX', 'histY', 'histBin', 'histLayout', 'histSubBlack'];
+  const PREF_IDS = ['demosaic', 'viewMode', 'underK', 'showUnder', 'showClip', 'histScope', 'histX', 'histY', 'histBin', 'histLayout', 'histSubBlack'];
   function savePrefs() {
     try {
       const v = {};
