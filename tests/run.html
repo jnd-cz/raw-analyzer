@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raw Analyzer tests</title>
+  <style>
+    :root { color-scheme: dark; --bg: #111317; --panel: #191c21; --text: #e6e8eb; --muted: #8b939e; --ok: #4cc96a; --bad: #ff5a52; --warn: #f2b84b; --border: #2a2f37; }
+    body { margin: 0; padding: 16px; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, sans-serif; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+    button, select, input { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; height: 28px; padding: 0 10px; font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    td.pass { color: var(--ok); } td.fail { color: var(--bad); } td.warn { color: var(--warn); } td.skip { color: var(--muted); }
+    td.detail { color: var(--muted); font: 12px ui-monospace, monospace; white-space: pre-wrap; }
+    #summary { margin: 8px 0; font-weight: 600; }
+    pre { background: var(--panel); padding: 10px; border-radius: 6px; white-space: pre-wrap; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>Raw Analyzer tests</h1>
+  <p class="muted">Decoder and demosaic checks against LibRaw references (<code>tests/make_refs.py</code>), regression
+    snapshots of metadata, levels and statistics, and an export check. See <code>tests/README.md</code>.</p>
+  <div class="bar">
+    <input id="filter" placeholder="Filter samples (regex)" size="28">
+    <button id="run">Run tests</button>
+    <button id="snap" title="Store the current results as the expected snapshots">Update snapshots</button>
+    <span class="muted" id="count"></span>
+  </div>
+  <div id="summary"></div>
+  <table>
+    <thead><tr><th>Sample</th><th>Decode</th><th>Demosaic</th><th>Snapshot</th><th>ms</th><th>Details</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <h2>Export</h2>
+  <div class="bar">
+    <select id="exSample"></select>
+    <button id="exRun">Run export check</button>
+  </div>
+  <pre id="exOut" class="muted">Exports the sample as 16-bit TIFF, 16-bit PNG, JPEG and 8-bit PNG (sRGB and Adobe RGB) through the app, then checks them with tifffile, LittleCMS and LibRaw.</pre>
+  <iframe id="app" title="app under test" style="position:absolute; left:-10000px; width:1200px; height:800px"></iframe>
+
+  <script src="../js/raw/core.js"></script>
+  <script src="../js/raw/ljpeg.js"></script>
+  <script src="../js/raw/crw.js"></script>
+  <script src="../js/raw/crx.js"></script>
+  <script src="../js/raw/cr3.js"></script>
+  <script src="../js/raw/meta.js"></script>
+  <script src="../js/raw/canon-color.js"></script>
+  <script src="../js/raw/canon-lenses.js"></script>
+  <script src="../js/raw/canon-geometry.js"></script>
+  <script src="../js/raw/decode.js"></script>
+  <script src="../js/raw/demosaic.js"></script>
+  <script src="../js/app/analysis.js"></script>
+  <script src="run.js"></script>
+</body>
+</html>

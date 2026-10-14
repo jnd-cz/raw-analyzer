@@ -1,8 +1,8 @@
 # To do
 
 ## Project setup
-- [ ] Put the project under git and publish it on GitHub (licence, `.gitignore`, first commit)
-- [ ] Move the regression tests into the repository (`tests/`): test page, LibRaw reference
+- [x] Put the project under git and publish it on GitHub (licence, `.gitignore`, first commit)
+- [x] Move the regression tests into the repository (`tests/`): test page, LibRaw reference
       generator (rawpy), decode / demosaic / export checks, and a short how-to-run note.
       Reference data for the sample files stays out of git (large), the scripts regenerate it.
 

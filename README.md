@@ -125,6 +125,8 @@ decoders but has not been checked against a sample file yet. The demosaic ports
 give the same 16-bit values as LibRaw's (raw colour output) on D30, 10D, 1D, 1Ds,
 1000D, 50D, 7D, 80D and R5 files, including the image edges.
 
+The checks can be re-run with the scripts and test page in [tests/](tests/README.md).
+
 Colour matrices are looked up by Canon's model ID, so regional names such as
 "EOS DIGITAL REBEL XS" or "EOS Kiss X3" get the matrix of the EOS 1000D / 500D.
 
