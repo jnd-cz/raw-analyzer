@@ -677,9 +677,15 @@
     let black = null, blackSource = '';
     const metaBlack = cd && cd.blackRGGB;
     // metadata black must agree with the masked border (the 1000D stores 1023 in
-    // 14 bit units for 12 bit data); otherwise trust the measurement
+    // 14 bit units for 12 bit data; the 400D, 50D and 5D Mark III store per-channel
+    // values a few DN off); otherwise trust the measurement. The border mean comes
+    // from thousands of pixels, so the test uses its standard error, not the pixel σ
+    // (at high ISO 3σ would let an 8 DN error through).
     const maskedOk = res.masked && res.masked.ch.every((c) => c);
-    const agrees = (q) => !maskedOk || rggbToCh(q).every((b, c) => Math.abs(b - res.masked.ch[c].mean) <= Math.max(4, 3 * res.masked.ch[c].sd));
+    const agrees = (q) => !maskedOk || rggbToCh(q).every((b, c) => {
+      const m = res.masked.ch[c];
+      return Math.abs(b - m.mean) <= Math.max(1.5, 4 * m.sd / Math.sqrt(m.n));
+    });
     if (metaBlack && Math.max(...metaBlack) < bitMax && agrees(metaBlack)) { black = rggbToCh(metaBlack); blackSource = 'camera metadata'; }
     else if (metaBlack && maskedOk && Math.max(...metaBlack) < bitMax) {
       black = res.masked.ch.map((c) => Math.round(c.mean));
